@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "lastcoffee: Start Public Server (F5)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}\\.vscode\\start-lastcoffee.ps1\"",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

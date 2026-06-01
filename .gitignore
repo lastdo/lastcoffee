@@ -2,4 +2,7 @@
 __pycache__/
 *.py[cod]
 data/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/start-lastcoffee.ps1

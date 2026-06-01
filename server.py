@@ -3,6 +3,8 @@ from pathlib import Path
 import argparse
 import json
 import mimetypes
+import threading
+import webbrowser
 
 
 ROOT = Path(__file__).resolve().parent
@@ -16,9 +18,23 @@ class CensusHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_GET(self):
-        if self.path.split("?", 1)[0] == "/api/state":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/state":
             self.send_json(read_state())
             return
+        if path == "/":
+            self.path = "/portal.html"
+            return super().do_GET()
+        if path in ("/lastcoffee", "/lastcoffee/"):
+            self.path = "/index.html"
+            return super().do_GET()
+        if path in ("/lastcoffee/admin", "/lastcoffee/admin/"):
+            self.send_response(302)
+            self.send_header("Location", "/index.html?admin")
+            self.end_headers()
+            return
+        if path == "/index.html" and "admin" in self.path:
+            return super().do_GET()
         super().do_GET()
 
     def do_PUT(self):
@@ -101,17 +117,22 @@ def main():
     parser = argparse.ArgumentParser(description="Run the Bahamut audio census form server.")
     parser.add_argument("--public", action="store_true", help="bind to 0.0.0.0 for LAN access")
     parser.add_argument("--port", type=int, default=PORT, help="server port")
+    parser.add_argument("--open", action="store_true", help="open the form in the default browser")
     args = parser.parse_args()
     host = "0.0.0.0" if args.public else "127.0.0.1"
+    local_url = f"http://localhost:{args.port}/lastcoffee"
 
     mimetypes.add_type("text/javascript; charset=utf-8", ".js")
     mimetypes.add_type("text/css; charset=utf-8", ".css")
     server = ThreadingHTTPServer((host, args.port), CensusHandler)
-    print(f"巴哈耳機普查表單已啟動：http://localhost:{args.port}")
+    print(f"lastcoffee server started: http://localhost:{args.port}", flush=True)
+    print(f"form entry: {local_url}", flush=True)
     if args.public:
-        print(f"區網模式已開啟：請讓使用者連到這台主機 IP 的 :{args.port}")
+        print(f"LAN mode enabled: share this computer's IP with port {args.port}.", flush=True)
     else:
-        print("目前只允許本機連線；分享給區網使用者時請加 --public。")
+        print("Local-only mode. Use --public for LAN access.", flush=True)
+    if args.open:
+        threading.Timer(0.5, webbrowser.open, args=(local_url,)).start()
     server.serve_forever()
 
 
