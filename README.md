@@ -19,11 +19,11 @@ python server.py --public --port 8000
 一般使用者開啟：
 
 ```text
-http://localhost:8000/
+http://localhost:8000/lastcoffee
 ```
 
 管理模式：
 
 ```text
-http://localhost:8000/?admin
+http://localhost:8000/lastcoffee/admin
 ```

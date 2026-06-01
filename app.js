@@ -390,7 +390,7 @@ async function addCurrentDevice() {
     note: els.deviceNote.value.trim(),
   });
 
-  await saveState({ replace: true });
+  await saveState();
   renderBrandOptions();
   renderCurrentDevices();
   renderAdmin();
@@ -551,11 +551,12 @@ async function deleteEntry(entryId) {
   if (!confirmed) return;
 
   state.entries = state.entries.filter((candidate) => candidate.id !== entryId);
-  await saveState();
+  await saveState({ replace: true });
 
   if (editingEntryId === entryId) resetCurrentEntry();
   renderMyEntriesList(historyFilterBahamutId ? getEntriesByBahamutId(historyFilterBahamutId) : []);
   renderStats();
+  renderAdmin();
 }
 
 function renderEditingBadge() {
