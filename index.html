@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>巴哈耳機普查表單</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-block">
+        <p class="eyebrow">Bahamut Audio Census</p>
+        <h1>巴哈耳機普查表單</h1>
+      </div>
+      <nav class="tabs" aria-label="主要頁籤">
+        <button class="tab is-active" data-view="form" type="button">填寫</button>
+        <button class="tab" data-view="post" type="button">貼文</button>
+        <button class="tab" data-view="stats" type="button">統計</button>
+        <button class="tab admin-only" data-view="admin" type="button">後台</button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="status-strip" id="connection-status" aria-live="polite"></section>
+
+      <section class="view is-active" id="view-form">
+        <div class="workspace">
+          <section class="panel form-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>填寫資料</h2>
+                <p>留下巴哈 ID 與目前使用中的耳機、前端或周邊設備。</p>
+              </div>
+              <button class="ghost-button" id="load-sample" type="button">載入示範</button>
+            </div>
+
+            <label class="field">
+              <span>巴哈 ID</span>
+              <input id="bahamut-id" autocomplete="nickname" placeholder="例如 soundlover2026" />
+            </label>
+
+            <label class="field">
+              <span>補充備註</span>
+              <textarea id="general-note" rows="3" placeholder="例如主力系統、搭配心得或已售出設備。"></textarea>
+            </label>
+
+            <div class="device-editor">
+              <div class="device-grid">
+                <label class="field">
+                  <span>設備類型</span>
+                  <select id="device-type"></select>
+                </label>
+
+                <label class="field brand-field">
+                  <span>品牌</span>
+                  <input id="brand-input" list="brand-options" placeholder="例如 FiiO、飛傲、Sennheiser" />
+                  <datalist id="brand-options"></datalist>
+                </label>
+
+                <label class="field">
+                  <span>型號</span>
+                  <input id="model-input" placeholder="例如 HA-FW02、HD800S、K9 Pro" />
+                </label>
+              </div>
+
+              <label class="field">
+                <span>設備備註</span>
+                <input id="device-note" placeholder="例如改線、限定版、常用搭配。" />
+              </label>
+
+              <div class="editor-actions">
+                <button class="primary-button" id="add-device" type="button">新增設備</button>
+                <button class="ghost-button" id="clear-device" type="button">清空欄位</button>
+              </div>
+              <p class="hint" id="brand-hint">沒有在清單中的品牌會先送到後台待確認。</p>
+            </div>
+          </section>
+
+          <aside class="panel list-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>本次填寫</h2>
+                <p><span id="device-count">0</span> 項設備</p>
+              </div>
+              <button class="danger-button" id="reset-current" type="button">重設</button>
+            </div>
+            <div class="device-list" id="device-list"></div>
+            <button class="submit-button" id="submit-entry" type="button">送出並產生貼文</button>
+
+            <section class="history-panel">
+              <h3>查詢自己的紀錄</h3>
+              <div class="history-search">
+                <input id="history-bahamut-id" placeholder="輸入巴哈 ID" />
+                <button class="ghost-button" id="find-my-entries" type="button">查詢</button>
+              </div>
+              <div id="editing-badge" class="editing-badge" hidden></div>
+              <div class="history-list" id="my-entries-list"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-post">
+        <div class="workspace single">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>巴哈貼文格式</h2>
+                <p>送出後可直接複製到討論串。</p>
+              </div>
+              <button class="primary-button" id="copy-post" type="button">複製貼文</button>
+            </div>
+            <textarea class="post-output" id="post-output" rows="20" readonly></textarea>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-stats">
+        <div class="stats-toolbar">
+          <div>
+            <h2>普查統計</h2>
+            <p>依已送出的資料即時整理。</p>
+          </div>
+          <div class="toolbar-actions">
+            <button class="ghost-button" id="export-csv" type="button">匯出 CSV</button>
+            <button class="ghost-button" id="export-json" type="button">匯出 JSON</button>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <section class="panel stat-panel">
+            <h3>總覽</h3>
+            <div class="metric-grid">
+              <div><strong id="metric-entries">0</strong><span>份回覆</span></div>
+              <div><strong id="metric-devices">0</strong><span>項設備</span></div>
+              <div><strong id="metric-brands">0</strong><span>正式品牌</span></div>
+              <div><strong id="metric-pending">0</strong><span>待確認品牌</span></div>
+            </div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>設備類型</h3>
+            <div class="rank-list" id="type-rank"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>品牌總排行</h3>
+            <div class="rank-list" id="brand-total-rank"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>型號排行</h3>
+            <div class="rank-list" id="model-rank"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>耳罩品牌 Top 10</h3>
+            <div class="rank-list" id="over-ear-top10"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>耳道品牌 Top 10</h3>
+            <div class="rank-list" id="iem-top10"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>桌上前端 Top 10</h3>
+            <div class="rank-list" id="desktop-frontend-top10"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>隨身前端 Top 10</h3>
+            <div class="rank-list" id="portable-frontend-top10"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-admin">
+        <div class="workspace admin-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>品牌審核</h2>
+                <p>整理使用者新增的品牌名稱與別名。</p>
+              </div>
+            </div>
+            <div id="pending-brands" class="admin-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>品牌管理</h2>
+                <p>新增常見品牌，讓使用者輸入時能直接選到。</p>
+              </div>
+            </div>
+            <form class="brand-form" id="brand-form">
+              <label class="field">
+                <span>英文名稱</span>
+                <input id="brand-en" required placeholder="例如 FiiO" />
+              </label>
+              <label class="field">
+                <span>中文名稱</span>
+                <input id="brand-zh" placeholder="例如 飛傲" />
+              </label>
+              <label class="field">
+                <span>Alias</span>
+                <input id="brand-aliases" placeholder="用逗號分隔，例如 Fiio, FIIO, 飛傲" />
+              </label>
+              <button class="primary-button" type="submit">新增正式品牌</button>
+            </form>
+            <div class="brand-table" id="brand-table"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <template id="device-item-template">
+      <article class="device-item">
+        <div>
+          <strong class="device-name"></strong>
+          <span class="device-meta"></span>
+        </div>
+        <button class="icon-button" type="button" title="移除">x</button>
+      </article>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
