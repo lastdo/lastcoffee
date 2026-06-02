@@ -734,16 +734,21 @@ def main() -> None:
     st.title("巴哈耳機普查")
     st.caption("2026 Bahamut Audio Census")
 
-    tabs = st.tabs(["填寫", "查詢/編輯", "紀錄", "統計", "後台"])
-    with tabs[0]:
+    page = st.radio(
+        "頁面",
+        ["填寫", "查詢/編輯", "紀錄", "統計", "後台"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if page == "填寫":
         render_form(state)
-    with tabs[1]:
+    elif page == "查詢/編輯":
         render_history(state)
-    with tabs[2]:
+    elif page == "紀錄":
         render_records(state)
-    with tabs[3]:
+    elif page == "統計":
         render_stats(state)
-    with tabs[4]:
+    elif page == "後台":
         render_admin(state)
 
 
