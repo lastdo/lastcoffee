@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 STATE_FILE = DATA_DIR / "census.json"
+RECORDS_PAGE_SIZE = 8
 
 DEVICE_TYPES = [
     "耳道式耳機",
@@ -99,6 +101,10 @@ def normalize(value: str) -> str:
     return str(value or "").strip().lower()
 
 
+def normalize_brand_key(value: str) -> str:
+    return re.sub(r"[\s\-_.・．。&＋+]+", "", normalize(value))
+
+
 def unique_values(values: list[str]) -> list[str]:
     seen = []
     for value in values:
@@ -120,6 +126,8 @@ def merge_starter_brands(existing: list[dict]) -> list[dict]:
             "chineseName": brand.get("chineseName", ""),
             "aliases": brand.get("aliases", []) if isinstance(brand.get("aliases"), list) else [],
             "status": brand.get("status", "approved"),
+            "createdAt": brand.get("createdAt", ""),
+            "updatedAt": brand.get("updatedAt", ""),
         }
 
     for brand in starter_brands():
@@ -174,8 +182,9 @@ def pending_brands(state: dict) -> list[dict]:
 
 def find_brand(state: dict, query: str) -> dict | None:
     needle = normalize(query)
+    brand_key = normalize_brand_key(query)
     for brand in state["brands"]:
-        if brand.get("status") == "rejected":
+        if brand.get("status") in ("rejected", "merged"):
             continue
         values = [
             brand.get("englishName", ""),
@@ -183,18 +192,24 @@ def find_brand(state: dict, query: str) -> dict | None:
             display_brand(brand),
             *brand.get("aliases", []),
         ]
-        if any(normalize(value) == needle for value in values):
+        if any(normalize(value) == needle or normalize_brand_key(value) == brand_key for value in values):
             return brand
     return None
 
 
 def create_pending_brand(state: dict, raw_name: str) -> dict:
+    existing = find_brand(state, raw_name)
+    if existing:
+        return existing
+
     brand = {
         "id": create_id(),
         "englishName": raw_name,
         "chineseName": "",
         "aliases": [raw_name],
         "status": "pending",
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
     }
     state["brands"].append(brand)
     return brand
@@ -238,6 +253,68 @@ def flatten_devices(state: dict) -> list[dict]:
     return rows
 
 
+def brand_by_id(state: dict, brand_id: str) -> dict | None:
+    return next((brand for brand in state["brands"] if brand.get("id") == brand_id), None)
+
+
+def is_approved_device(state: dict, device: dict) -> bool:
+    brand = brand_by_id(state, device.get("brandId", ""))
+    return not brand or brand.get("status") == "approved"
+
+
+def merge_notes(left: str, right: str) -> str:
+    return "\n".join(unique_values([*(left or "").split("\n"), right]))
+
+
+def unique_devices(devices: list[dict]) -> list[dict]:
+    by_key = {}
+    for device in devices:
+        key = "|".join(
+            normalize(str(device.get(field, "")))
+            for field in ("type", "brandName", "model", "note")
+        )
+        by_key.setdefault(key, dict(device))
+    return list(by_key.values())
+
+
+def record_groups(state: dict, query: str = "") -> list[dict]:
+    groups = {}
+    needle = normalize(query)
+    for entry in state["entries"]:
+        key = normalize(entry.get("bahamutId", ""))
+        if not key or (needle and needle not in key):
+            continue
+
+        current = groups.setdefault(
+            key,
+            {
+                "id": key,
+                "bahamutId": entry.get("bahamutId", ""),
+                "generalNote": entry.get("generalNote", ""),
+                "devices": [],
+                "createdAt": entry.get("createdAt") or entry.get("updatedAt", ""),
+                "updatedAt": entry.get("updatedAt") or entry.get("createdAt", ""),
+                "entryCount": 0,
+            },
+        )
+        current["devices"].extend(entry.get("devices", []))
+        current["generalNote"] = merge_notes(current.get("generalNote", ""), entry.get("generalNote", ""))
+        current["entryCount"] += 1
+        if (entry.get("createdAt") or entry.get("updatedAt", "")) > current.get("createdAt", ""):
+            current["createdAt"] = entry.get("createdAt") or entry.get("updatedAt", "")
+        if (entry.get("updatedAt") or entry.get("createdAt", "")) > current.get("updatedAt", ""):
+            current["updatedAt"] = entry.get("updatedAt") or entry.get("createdAt", "")
+
+    rows = [{**group, "devices": unique_devices(group["devices"])} for group in groups.values()]
+    return sorted(rows, key=lambda item: item.get("createdAt") or item.get("updatedAt", ""), reverse=True)
+
+
+def format_time(value: str) -> str:
+    if not value:
+        return "未記錄"
+    return value.replace("T", " ").replace("+00:00", "").replace("Z", "")[:19]
+
+
 def rank_rows(items: list[dict], key: str, limit: int = 10) -> list[tuple[str, int]]:
     counts = Counter(str(item.get(key, "")).strip() for item in items if item.get(key))
     return counts.most_common(limit)
@@ -267,6 +344,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("last_post", "")
     st.session_state.setdefault("editing_entry_id", None)
     st.session_state.setdefault("pending_edit_entry_id", None)
+    st.session_state.setdefault("records_page", 1)
 
 
 def render_form(state: dict) -> None:
@@ -288,7 +366,8 @@ def render_form(state: dict) -> None:
         device_type = cols[0].selectbox("設備類型", DEVICE_TYPES)
         brand_options = [display_brand(brand) for brand in approved_brands(state)]
         brand_name = cols[1].selectbox("品牌", [""] + brand_options, index=0)
-        custom_brand = cols[1].text_input("清單沒有？輸入新品牌")
+        custom_brand = cols[1].text_input("清單沒有？新增待審品牌")
+        cols[1].caption("直接輸入清單外品牌，加入設備時會送到後台待確認。")
         model = cols[2].text_input("型號", placeholder="例如 HA-FW02、HD800S、K9 Pro")
         note = st.text_input("設備備註", placeholder="例如 改線、常用搭配、版本")
         submitted = st.form_submit_button("加入設備")
@@ -392,9 +471,64 @@ def render_history(state: dict) -> None:
                 st.rerun()
 
 
+@st.dialog("器材火力展示!")
+def show_record_detail(entry: dict) -> None:
+    st.caption(f"{entry.get('bahamutId', '')}｜提交時間：{format_time(entry.get('createdAt') or entry.get('updatedAt', ''))}")
+    st.write(f"設備數：{len(entry.get('devices', []))}")
+    for device in entry.get("devices", []):
+        note = f"（{device.get('note')}）" if device.get("note") else ""
+        st.write(f"- {device.get('type', '')}｜{device.get('brandName', '')} {device.get('model', '')}{note}")
+    if entry.get("generalNote"):
+        st.divider()
+        st.write(f"備註：{entry.get('generalNote')}")
+
+
+def render_records(state: dict) -> None:
+    st.subheader("紀錄")
+    st.caption("依提交時間倒序查看所有回覆。")
+
+    query = st.text_input("巴哈 ID 搜尋", key="record_search")
+    if query:
+        st.session_state.records_page = 1
+
+    records = record_groups(state, query)
+    total_pages = max(1, (len(records) + RECORDS_PAGE_SIZE - 1) // RECORDS_PAGE_SIZE)
+    st.session_state.records_page = min(max(st.session_state.records_page, 1), total_pages)
+    page = st.session_state.records_page
+    start = (page - 1) * RECORDS_PAGE_SIZE
+    page_records = records[start : start + RECORDS_PAGE_SIZE]
+
+    if records:
+        st.caption(f"共 {len(records)} 位使用者，第 {page} / {total_pages} 頁")
+    elif query:
+        st.info("找不到符合的巴哈 ID。")
+    else:
+        st.info("目前還沒有任何紀錄。")
+
+    for entry in page_records:
+        with st.container(border=True):
+            cols = st.columns([3, 2, 1])
+            cols[0].markdown(f"**{entry.get('bahamutId', '未填寫')}**")
+            cols[0].caption(f"提交時間：{format_time(entry.get('createdAt') or entry.get('updatedAt', ''))}")
+            cols[1].write(f"設備數：{len(entry.get('devices', []))}")
+            if cols[2].button("查看", key=f"record-view-{entry['id']}"):
+                show_record_detail(entry)
+
+    if total_pages > 1:
+        prev_col, page_col, next_col = st.columns([1, 2, 1])
+        if prev_col.button("上一頁", disabled=page <= 1):
+            st.session_state.records_page -= 1
+            st.rerun()
+        page_col.write(f"{page} / {total_pages}")
+        if next_col.button("下一頁", disabled=page >= total_pages):
+            st.session_state.records_page += 1
+            st.rerun()
+
+
 def render_stats(state: dict) -> None:
     st.subheader("統計")
     devices = flatten_devices(state)
+    approved_devices = [device for device in devices if is_approved_device(state, device)]
     cols = st.columns(4)
     cols[0].metric("填寫紀錄", len(state["entries"]))
     cols[1].metric("設備總數", len(devices))
@@ -405,15 +539,25 @@ def render_stats(state: dict) -> None:
     left.markdown("#### 類型排名")
     left.table(rank_rows(devices, "type"))
     right.markdown("#### 品牌排名")
-    right.table(rank_rows(devices, "brandName"))
+    right.table(rank_rows(approved_devices, "brandName"))
 
-    st.markdown("#### 型號排名")
+    pending_rows = []
+    for brand in pending_brands(state):
+        count = sum(1 for device in devices if device.get("brandId") == brand.get("id"))
+        pending_rows.append((display_brand(brand), count))
+    pending_rows.sort(key=lambda row: (-row[1], row[0]))
+
+    pending_col, model_col = st.columns(2)
+    pending_col.markdown("#### 待確認品牌")
+    pending_col.table(pending_rows)
+    model_col.markdown("#### 型號排名")
+
     model_rows = Counter(
         f"{device.get('brandName', '')} {device.get('model', '')}".strip()
-        for device in devices
+        for device in approved_devices
         if device.get("model")
     ).most_common(10)
-    st.table(model_rows)
+    model_col.table(model_rows)
 
     st.download_button("下載 CSV", state_to_csv(state), "bahamut-audio-census.csv", "text/csv")
     st.download_button(
@@ -484,6 +628,101 @@ def render_admin(state: dict) -> None:
     st.table([(display_brand(brand), ", ".join(brand.get("aliases", []))) for brand in approved_brands(state)])
 
 
+def merge_pending_brand(state: dict, pending_brand: dict, target_brand: dict) -> None:
+    target_brand["aliases"] = unique_values(
+        [
+            *target_brand.get("aliases", []),
+            pending_brand.get("englishName", ""),
+            pending_brand.get("chineseName", ""),
+            *pending_brand.get("aliases", []),
+        ]
+    )
+    for entry in state["entries"]:
+        for device in entry.get("devices", []):
+            if device.get("brandId") == pending_brand.get("id"):
+                device["brandId"] = target_brand["id"]
+                device["brandName"] = display_brand(target_brand)
+    pending_brand["status"] = "merged"
+    pending_brand["updatedAt"] = now_iso()
+
+
+def render_admin(state: dict) -> None:
+    st.subheader("品牌管理")
+    pending = sorted(
+        pending_brands(state),
+        key=lambda brand: brand.get("createdAt") or brand.get("updatedAt", ""),
+        reverse=True,
+    )
+    st.markdown("#### 待審品牌")
+    if not pending:
+        st.info("目前沒有待審品牌。")
+
+    approved = sorted(approved_brands(state), key=lambda brand: display_brand(brand).lower())
+    approved_options = ["審核為新品牌"] + [display_brand(brand) for brand in approved]
+
+    for brand in pending:
+        with st.expander(brand.get("englishName", "")):
+            english = st.text_input("英文/原文名稱", brand.get("englishName", ""), key=f"pending-en-{brand['id']}")
+            chinese = st.text_input("中文名稱", brand.get("chineseName", ""), key=f"pending-zh-{brand['id']}")
+            aliases = st.text_input(
+                "Alias",
+                ", ".join(brand.get("aliases", [])),
+                key=f"pending-aliases-{brand['id']}",
+            )
+            merge_choice = st.selectbox("合併到既有品牌", approved_options, key=f"pending-merge-{brand['id']}")
+            cols = st.columns(2)
+            if cols[0].button("通過", key=f"approve-{brand['id']}"):
+                if merge_choice != "審核為新品牌":
+                    target = approved[approved_options.index(merge_choice) - 1]
+                    merge_pending_brand(state, brand, target)
+                else:
+                    brand["englishName"] = english.strip() or brand["englishName"]
+                    brand["chineseName"] = chinese.strip()
+                    brand["aliases"] = unique_values(aliases.split(","))
+                    brand["status"] = "approved"
+                    brand["updatedAt"] = now_iso()
+                    next_name = display_brand(brand)
+                    for entry in state["entries"]:
+                        for device in entry.get("devices", []):
+                            if device.get("brandId") == brand["id"]:
+                                device["brandName"] = next_name
+                save_state(state)
+                st.rerun()
+            if cols[1].button("拒絕", key=f"reject-{brand['id']}"):
+                brand["status"] = "rejected"
+                brand["updatedAt"] = now_iso()
+                save_state(state)
+                st.rerun()
+
+    st.markdown("#### 新增正式品牌")
+    with st.form("add_brand"):
+        english = st.text_input("英文/原文名稱")
+        chinese = st.text_input("中文名稱")
+        aliases = st.text_input("Alias，用逗號分隔")
+        if st.form_submit_button("新增品牌"):
+            if not english.strip():
+                st.warning("請填寫品牌名稱。")
+            elif find_brand(state, english):
+                st.warning("這個品牌已存在。")
+            else:
+                state["brands"].append(
+                    {
+                        "id": create_id(),
+                        "englishName": english.strip(),
+                        "chineseName": chinese.strip(),
+                        "aliases": unique_values(aliases.split(",")),
+                        "status": "approved",
+                        "createdAt": now_iso(),
+                        "updatedAt": now_iso(),
+                    }
+                )
+                save_state(state)
+                st.success("已新增品牌。")
+
+    st.markdown("#### 正式品牌清單")
+    st.table([(display_brand(brand), ", ".join(brand.get("aliases", []))) for brand in approved_brands(state)])
+
+
 def main() -> None:
     st.set_page_config(page_title="巴哈耳機普查", layout="wide")
     ensure_session_defaults()
@@ -492,14 +731,16 @@ def main() -> None:
     st.title("巴哈耳機普查")
     st.caption("2026 Bahamut Audio Census")
 
-    tabs = st.tabs(["填寫", "查詢/編輯", "統計", "後台"])
+    tabs = st.tabs(["填寫", "查詢/編輯", "紀錄", "統計", "後台"])
     with tabs[0]:
         render_form(state)
     with tabs[1]:
         render_history(state)
     with tabs[2]:
-        render_stats(state)
+        render_records(state)
     with tabs[3]:
+        render_stats(state)
+    with tabs[4]:
         render_admin(state)
 
 
