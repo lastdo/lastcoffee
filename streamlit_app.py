@@ -344,6 +344,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("last_post", "")
     st.session_state.setdefault("editing_entry_id", None)
     st.session_state.setdefault("pending_edit_entry_id", None)
+    st.session_state.setdefault("requested_page", None)
     st.session_state.setdefault("records_page", 1)
     st.session_state.setdefault("active_page", "填寫")
 
@@ -471,7 +472,7 @@ def render_history(state: dict) -> None:
             cols = st.columns(2)
             if cols[0].button("載入編輯", key=f"edit-{entry['id']}"):
                 st.session_state.pending_edit_entry_id = entry["id"]
-                st.session_state.active_page = "填寫"
+                st.session_state.requested_page = "填寫"
                 st.rerun()
             if cols[1].button("刪除", key=f"delete-{entry['id']}"):
                 state["entries"] = [item for item in state["entries"] if item.get("id") != entry["id"]]
@@ -735,6 +736,9 @@ def main() -> None:
     st.set_page_config(page_title="巴哈耳機普查", layout="wide")
     ensure_session_defaults()
     state = load_state()
+    requested_page = st.session_state.pop("requested_page", None)
+    if requested_page:
+        st.session_state.active_page = requested_page
 
     st.title("巴哈耳機普查")
     st.caption("2026 Bahamut Audio Census")
