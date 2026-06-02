@@ -458,6 +458,9 @@ def render_history(state: dict) -> None:
     if not matches:
         st.info("找不到這個 ID 的紀錄。")
         return
+    if st.session_state.editing_entry_id:
+        st.info("已載入編輯模式，請切到「填寫」頁繼續修改。")
+        st.divider()
     for entry in matches:
         with st.expander(f"{entry.get('bahamutId')}｜{len(entry.get('devices', []))} 項設備｜{entry.get('updatedAt', '')}"):
             st.code(build_post(entry), language="text")
@@ -742,6 +745,33 @@ def main() -> None:
         render_stats(state)
     with tabs[4]:
         render_admin(state)
+
+
+ADMIN_PASSWORD = "Lastcoffee"
+_render_admin_impl = render_admin
+
+
+@st.dialog("請輸入管理員密碼")
+def prompt_admin_password():
+    st.write("請輸入管理員密碼")
+    with st.form("admin_password_form", clear_on_submit=False):
+        password = st.text_input("管理員密碼", type="password", key="admin_password_input")
+        submitted = st.form_submit_button("確認")
+        if submitted:
+            if password == ADMIN_PASSWORD:
+                st.session_state.admin_unlocked = True
+                st.session_state.admin_password_error = False
+                st.rerun()
+            else:
+                st.session_state.admin_password_error = True
+                st.error("密碼輸入錯誤，無法訪問後台")
+
+
+def render_admin(state):
+    if not st.session_state.get("admin_unlocked", False):
+        prompt_admin_password()
+        return
+    _render_admin_impl(state)
 
 
 if __name__ == "__main__":
