@@ -20,14 +20,11 @@ RECORDS_PAGE_SIZE = 8
 DEVICE_TYPES = [
     "耳道式耳機",
     "耳罩式耳機",
-    "平板耳機",
     "DAC",
     "耳擴",
     "DAC/耳擴一體機",
     "DAP / 隨身播放器",
     "小尾巴",
-    "線材",
-    "其他",
 ]
 
 STARTER_BRAND_ROWS = [
