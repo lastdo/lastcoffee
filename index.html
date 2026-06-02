@@ -15,6 +15,7 @@
       <nav class="tabs" aria-label="主要頁籤">
         <button class="tab is-active" data-view="form" type="button">填寫</button>
         <button class="tab" data-view="post" type="button">貼文</button>
+        <button class="tab" data-view="records" type="button">紀錄</button>
         <button class="tab" data-view="stats" type="button">統計</button>
         <button class="tab admin-only" data-view="admin" type="button">後台</button>
       </nav>
@@ -52,9 +53,13 @@
                 </label>
 
                 <label class="field brand-field">
-                  <span>品牌</span>
+                  <span class="field-title">
+                    <span>品牌</span>
+                    <span class="field-action-note">清單沒有？新增待審品牌</span>
+                  </span>
                   <input id="brand-input" list="brand-options" placeholder="例如 FiiO、飛傲、Sennheiser" />
                   <datalist id="brand-options"></datalist>
+                  <small>直接輸入清單外品牌，加入設備時會送到後台待確認。</small>
                 </label>
 
                 <label class="field">
@@ -115,6 +120,26 @@
         </div>
       </section>
 
+      <section class="view" id="view-records">
+        <div class="records-layout">
+          <section class="panel records-panel">
+            <div class="panel-heading records-heading">
+              <div>
+                <h2>紀錄</h2>
+                <p>依提交時間倒序查看所有回覆。</p>
+              </div>
+              <label class="record-search field">
+                <span>巴哈 ID 搜尋</span>
+                <input id="record-search" placeholder="輸入巴哈 ID" />
+              </label>
+            </div>
+            <div class="records-summary" id="records-summary"></div>
+            <div class="record-list" id="record-list"></div>
+            <div class="pagination" id="record-pagination"></div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" id="view-stats">
         <div class="stats-toolbar">
           <div>
@@ -143,6 +168,10 @@
           <section class="panel stat-panel">
             <h3>品牌總排行</h3>
             <div class="rank-list" id="brand-total-rank"></div>
+          </section>
+          <section class="panel stat-panel">
+            <h3>待確認品牌</h3>
+            <div class="rank-list" id="pending-brand-rank"></div>
           </section>
           <section class="panel stat-panel">
             <h3>型號排行</h3>
@@ -205,6 +234,24 @@
         </div>
       </section>
     </main>
+
+    <div class="modal" id="record-modal" hidden>
+      <div class="modal-backdrop" id="record-modal-backdrop"></div>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="record-modal-title">
+        <div class="modal-header">
+          <div>
+            <h2 id="record-modal-title">器材火力展示!</h2>
+            <p class="modal-subtitle" id="record-modal-meta"></p>
+          </div>
+          <button class="ghost-button" id="record-modal-close" type="button">關閉</button>
+        </div>
+        <div class="modal-body">
+          <p class="record-count" id="record-modal-count"></p>
+          <ul class="record-device-list" id="record-modal-devices"></ul>
+          <p class="record-note" id="record-modal-note" hidden></p>
+        </div>
+      </section>
+    </div>
 
     <template id="device-item-template">
       <article class="device-item">
