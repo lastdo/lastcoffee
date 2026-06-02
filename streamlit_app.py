@@ -345,6 +345,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("editing_entry_id", None)
     st.session_state.setdefault("pending_edit_entry_id", None)
     st.session_state.setdefault("records_page", 1)
+    st.session_state.setdefault("active_page", "填寫")
 
 
 def render_form(state: dict) -> None:
@@ -360,6 +361,9 @@ def render_form(state: dict) -> None:
             st.session_state.general_note = entry.get("generalNote", "")
             st.session_state.devices = [dict(device) for device in entry.get("devices", [])]
         st.session_state.pending_edit_entry_id = None
+
+    if st.session_state.editing_entry_id:
+        st.info("編輯模式：資料已載入，修改後送出會覆蓋原紀錄。")
 
     with st.form("device_form", clear_on_submit=True):
         cols = st.columns([1, 1, 1])
@@ -467,6 +471,7 @@ def render_history(state: dict) -> None:
             cols = st.columns(2)
             if cols[0].button("載入編輯", key=f"edit-{entry['id']}"):
                 st.session_state.pending_edit_entry_id = entry["id"]
+                st.session_state.active_page = "填寫"
                 st.rerun()
             if cols[1].button("刪除", key=f"delete-{entry['id']}"):
                 state["entries"] = [item for item in state["entries"] if item.get("id") != entry["id"]]
@@ -739,6 +744,7 @@ def main() -> None:
         ["填寫", "查詢/編輯", "紀錄", "統計", "後台"],
         horizontal=True,
         label_visibility="collapsed",
+        key="active_page",
     )
     if page == "填寫":
         render_form(state)
