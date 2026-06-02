@@ -1,6 +1,7 @@
 const STORAGE_KEY = "bahamutAudioCensus.v3";
 const API_STATE_URL = "/api/state";
 const PUBLIC_MODE = !new URLSearchParams(location.search).has("admin") && location.hash !== "#admin";
+const RECORDS_PAGE_SIZE = 8;
 
 const deviceTypes = [
   "耳道式耳機",
@@ -67,6 +68,8 @@ let currentDevices = [];
 let lastPost = "";
 let editingEntryId = null;
 let historyFilterBahamutId = "";
+let recordSearchQuery = "";
+let recordPage = 1;
 let apiAvailable = false;
 
 const els = {
@@ -92,6 +95,17 @@ const els = {
   editingBadge: document.querySelector("#editing-badge"),
   postOutput: document.querySelector("#post-output"),
   copyPost: document.querySelector("#copy-post"),
+  recordSearch: document.querySelector("#record-search"),
+  recordsSummary: document.querySelector("#records-summary"),
+  recordList: document.querySelector("#record-list"),
+  recordPagination: document.querySelector("#record-pagination"),
+  recordModal: document.querySelector("#record-modal"),
+  recordModalBackdrop: document.querySelector("#record-modal-backdrop"),
+  recordModalClose: document.querySelector("#record-modal-close"),
+  recordModalMeta: document.querySelector("#record-modal-meta"),
+  recordModalCount: document.querySelector("#record-modal-count"),
+  recordModalDevices: document.querySelector("#record-modal-devices"),
+  recordModalNote: document.querySelector("#record-modal-note"),
   loadSample: document.querySelector("#load-sample"),
   exportCsv: document.querySelector("#export-csv"),
   exportJson: document.querySelector("#export-json"),
@@ -101,6 +115,7 @@ const els = {
   metricPending: document.querySelector("#metric-pending"),
   typeRank: document.querySelector("#type-rank"),
   brandTotalRank: document.querySelector("#brand-total-rank"),
+  pendingBrandRank: document.querySelector("#pending-brand-rank"),
   modelRank: document.querySelector("#model-rank"),
   overEarTop10: document.querySelector("#over-ear-top10"),
   iemTop10: document.querySelector("#iem-top10"),
@@ -142,6 +157,16 @@ function bindEvents() {
   els.submitEntry.addEventListener("click", submitEntry);
   els.findMyEntries.addEventListener("click", findMyEntries);
   els.copyPost.addEventListener("click", copyPost);
+  els.recordSearch.addEventListener("input", () => {
+    recordSearchQuery = els.recordSearch.value.trim();
+    recordPage = 1;
+    renderRecords();
+  });
+  els.recordModalClose.addEventListener("click", closeRecordModal);
+  els.recordModalBackdrop.addEventListener("click", closeRecordModal);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.recordModal.hidden) closeRecordModal();
+  });
   els.loadSample.addEventListener("click", loadSample);
   els.exportCsv.addEventListener("click", exportCsv);
   els.exportJson.addEventListener("click", exportJson);
@@ -314,6 +339,7 @@ function renderAll() {
   renderCurrentDevices();
   renderEditingBadge();
   renderMyEntriesList([]);
+  renderRecords();
   renderStats();
   renderAdmin();
 }
@@ -322,6 +348,7 @@ function showView(name) {
   if (name === "admin" && PUBLIC_MODE) return;
   els.tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === name));
   els.views.forEach((view) => view.classList.toggle("is-active", view.id === `view-${name}`));
+  if (name === "records") renderRecords();
   if (name === "stats") renderStats();
   if (name === "admin") renderAdmin();
 }
@@ -343,18 +370,23 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeBrandKey(value) {
+  return normalize(value).replace(/[\s\-_.・．。&＋+]+/g, "");
+}
+
 function uniqueValues(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function findBrand(query) {
   const needle = normalize(query);
+  const brandKey = normalizeBrandKey(query);
   if (!needle) return null;
 
   return state.brands.find((brand) => {
-    if (brand.status === "rejected") return false;
+    if (["rejected", "merged"].includes(brand.status)) return false;
     const values = [brand.englishName, brand.chineseName, displayBrand(brand), ...(brand.aliases || [])];
-    return values.some((value) => normalize(value) === needle);
+    return values.some((value) => normalize(value) === needle || normalizeBrandKey(value) === brandKey);
   });
 }
 
@@ -398,12 +430,17 @@ async function addCurrentDevice() {
 }
 
 function createPendingBrand(rawName) {
+  const existing = findBrand(rawName);
+  if (existing) return existing;
+
   const brand = {
     id: createId(),
     englishName: rawName,
     chineseName: "",
     aliases: [rawName],
     status: "pending",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   state.brands.push(brand);
   return brand;
@@ -487,6 +524,7 @@ async function submitEntry() {
   renderCurrentDevices();
   renderEditingBadge();
   renderMyEntriesList(getEntriesByBahamutId(historyFilterBahamutId));
+  renderRecords();
   renderStats();
   renderAdmin();
   showView("post");
@@ -530,6 +568,176 @@ function renderMyEntriesList(entries) {
   });
 }
 
+function getRecordGroups() {
+  const query = normalize(recordSearchQuery);
+  const byBahamutId = new Map();
+
+  state.entries.forEach((entry) => {
+    const key = normalize(entry.bahamutId);
+    if (!key || (query && !key.includes(query))) return;
+
+    const existing = byBahamutId.get(key);
+    if (!existing) {
+      byBahamutId.set(key, {
+        id: key,
+        bahamutId: entry.bahamutId,
+        generalNote: entry.generalNote || "",
+        devices: [...entry.devices],
+        createdAt: entry.createdAt || entry.updatedAt,
+        updatedAt: entry.updatedAt || entry.createdAt,
+        entryCount: 1,
+      });
+      return;
+    }
+
+    existing.devices.push(...entry.devices);
+    existing.generalNote = mergeNotes(existing.generalNote, entry.generalNote);
+    existing.entryCount += 1;
+
+    if (new Date(entry.createdAt || entry.updatedAt) > new Date(existing.createdAt || existing.updatedAt)) {
+      existing.createdAt = entry.createdAt || entry.updatedAt;
+    }
+    if (new Date(entry.updatedAt || entry.createdAt) > new Date(existing.updatedAt || existing.createdAt)) {
+      existing.updatedAt = entry.updatedAt || entry.createdAt;
+    }
+  });
+
+  return [...byBahamutId.values()]
+    .map((group) => ({ ...group, devices: uniqueDevices(group.devices) }))
+    .sort((a, b) => new Date(b.createdAt || b.updatedAt) - new Date(a.createdAt || a.updatedAt));
+}
+
+function mergeNotes(left, right) {
+  return uniqueValues([...(left || "").split("\n"), right]).join("\n");
+}
+
+function uniqueDevices(devices) {
+  const byKey = new Map();
+  devices.forEach((device) => {
+    const key = [device.type, device.brandName, device.model, device.note].map(normalize).join("|");
+    if (!byKey.has(key)) byKey.set(key, { ...device });
+  });
+  return [...byKey.values()];
+}
+
+function formatEntryTime(entry) {
+  const value = entry.createdAt || entry.updatedAt;
+  if (!value) return "未記錄";
+  return new Date(value).toLocaleString("zh-TW", { hour12: false });
+}
+
+function renderRecords() {
+  const groups = getRecordGroups();
+  const totalPages = Math.max(1, Math.ceil(groups.length / RECORDS_PAGE_SIZE));
+  recordPage = Math.min(Math.max(recordPage, 1), totalPages);
+
+  const start = (recordPage - 1) * RECORDS_PAGE_SIZE;
+  const pageGroups = groups.slice(start, start + RECORDS_PAGE_SIZE);
+
+  els.recordsSummary.textContent = groups.length
+    ? `共 ${groups.length} 位使用者，第 ${recordPage} / ${totalPages} 頁`
+    : recordSearchQuery
+      ? "找不到符合的巴哈 ID。"
+      : "目前還沒有任何紀錄。";
+
+  els.recordList.replaceChildren();
+  pageGroups.forEach((group) => {
+    els.recordList.append(createRecordCard(group));
+  });
+
+  renderRecordPagination(totalPages);
+}
+
+function createRecordCard(entry) {
+  const card = document.createElement("article");
+  card.className = "record-card";
+
+  const title = document.createElement("div");
+  title.className = "record-card-title";
+
+  const identity = document.createElement("div");
+  const name = document.createElement("h3");
+  name.textContent = entry.bahamutId || "未填寫";
+  const meta = document.createElement("p");
+  meta.textContent = `提交時間：${formatEntryTime(entry)}`;
+  identity.append(name, meta);
+
+  const viewButton = document.createElement("button");
+  viewButton.className = "primary-button";
+  viewButton.type = "button";
+  viewButton.textContent = "查看";
+  viewButton.addEventListener("click", () => openRecordModal(entry));
+
+  title.append(identity, viewButton);
+
+  const count = document.createElement("p");
+  count.className = "record-count";
+  count.textContent = `設備數：${entry.devices.length}`;
+
+  card.append(title, count);
+
+  return card;
+}
+
+function openRecordModal(entry) {
+  els.recordModalMeta.textContent = `${entry.bahamutId}｜提交時間：${formatEntryTime(entry)}`;
+  els.recordModalCount.textContent = `設備數：${entry.devices.length}`;
+
+  els.recordModalDevices.replaceChildren();
+  entry.devices.forEach((device) => {
+    const item = document.createElement("li");
+    const note = device.note ? `（${device.note}）` : "";
+    item.textContent = `${device.type}｜${device.brandName} ${device.model}${note}`;
+    els.recordModalDevices.append(item);
+  });
+
+  if (entry.generalNote) {
+    els.recordModalNote.hidden = false;
+    els.recordModalNote.textContent = `備註：${entry.generalNote}`;
+  } else {
+    els.recordModalNote.hidden = true;
+    els.recordModalNote.textContent = "";
+  }
+
+  els.recordModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeRecordModal() {
+  els.recordModal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function renderRecordPagination(totalPages) {
+  els.recordPagination.replaceChildren();
+  if (totalPages <= 1) return;
+
+  const previous = document.createElement("button");
+  previous.className = "ghost-button";
+  previous.type = "button";
+  previous.textContent = "上一頁";
+  previous.disabled = recordPage === 1;
+  previous.addEventListener("click", () => {
+    recordPage -= 1;
+    renderRecords();
+  });
+
+  const pageText = document.createElement("span");
+  pageText.textContent = `${recordPage} / ${totalPages}`;
+
+  const next = document.createElement("button");
+  next.className = "ghost-button";
+  next.type = "button";
+  next.textContent = "下一頁";
+  next.disabled = recordPage === totalPages;
+  next.addEventListener("click", () => {
+    recordPage += 1;
+    renderRecords();
+  });
+
+  els.recordPagination.append(previous, pageText, next);
+}
+
 function loadEntryForEdit(entryId) {
   const entry = state.entries.find((candidate) => candidate.id === entryId);
   if (!entry) return;
@@ -555,6 +763,7 @@ async function deleteEntry(entryId) {
 
   if (editingEntryId === entryId) resetCurrentEntry();
   renderMyEntriesList(historyFilterBahamutId ? getEntriesByBahamutId(historyFilterBahamutId) : []);
+  renderRecords();
   renderStats();
   renderAdmin();
 }
@@ -639,6 +848,15 @@ function flattenDevices() {
   );
 }
 
+function getBrandById(id) {
+  return state.brands.find((brand) => brand.id === id);
+}
+
+function isApprovedDevice(device) {
+  const brand = getBrandById(device.brandId);
+  return !brand || brand.status === "approved";
+}
+
 function rankBy(items, keyGetter) {
   const counts = new Map();
   items.forEach((item) => {
@@ -655,15 +873,28 @@ function rankBy(items, keyGetter) {
 
 function renderStats() {
   const devices = flattenDevices();
+  const approvedDevices = devices.filter(isApprovedDevice);
   els.metricEntries.textContent = state.entries.length;
   els.metricDevices.textContent = devices.length;
   els.metricBrands.textContent = approvedBrands().length;
   els.metricPending.textContent = pendingBrands().length;
 
   renderRank(els.typeRank, rankBy(devices, (device) => device.type));
-  renderRank(els.brandTotalRank, rankBy(devices, (device) => device.brandName));
-  renderRank(els.modelRank, rankBy(devices, (device) => `${device.brandName} ${device.model}`));
-  renderCategoryTop10(devices);
+  renderRank(els.brandTotalRank, rankBy(approvedDevices, (device) => device.brandName));
+  renderPendingBrandRank();
+  renderRank(els.modelRank, rankBy(approvedDevices, (device) => `${device.brandName} ${device.model}`));
+  renderCategoryTop10(approvedDevices);
+}
+
+function renderPendingBrandRank() {
+  const rows = pendingBrands()
+    .map((brand) => ({
+      label: displayBrand(brand),
+      count: flattenDevices().filter((device) => device.brandId === brand.id).length,
+    }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "zh-Hant"));
+
+  renderRank(els.pendingBrandRank, rows);
 }
 
 function renderCategoryTop10(devices) {
@@ -735,7 +966,9 @@ function renderPendingBrands() {
     return;
   }
 
-  brands.forEach((brand) => {
+  brands
+    .sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0))
+    .forEach((brand) => {
     const card = document.createElement("article");
     card.className = "admin-card";
     card.innerHTML = `
@@ -755,6 +988,12 @@ function renderPendingBrands() {
         <span>Alias</span>
         <input class="pending-aliases" />
       </label>
+      <label class="field">
+        <span>合併到既有品牌</span>
+        <select class="pending-merge">
+          <option value="">審核為新品牌</option>
+        </select>
+      </label>
       <div class="admin-card-actions">
         <button class="primary-button approve" type="button">核准</button>
         <button class="danger-button reject" type="button">拒絕</button>
@@ -764,20 +1003,64 @@ function renderPendingBrands() {
     card.querySelector(".pending-en").value = brand.englishName;
     card.querySelector(".pending-zh").value = brand.chineseName;
     card.querySelector(".pending-aliases").value = (brand.aliases || []).join(", ");
+    const mergeSelect = card.querySelector(".pending-merge");
+    approvedBrands()
+      .sort((a, b) => displayBrand(a).localeCompare(displayBrand(b), "zh-Hant"))
+      .forEach((approvedBrand) => {
+        const option = document.createElement("option");
+        option.value = approvedBrand.id;
+        option.textContent = displayBrand(approvedBrand);
+        mergeSelect.append(option);
+      });
     card.querySelector(".approve").addEventListener("click", () => approvePendingBrand(brand.id, card));
     card.querySelector(".reject").addEventListener("click", () => rejectPendingBrand(brand.id));
-    els.pendingBrands.append(card);
-  });
+      els.pendingBrands.append(card);
+    });
 }
 
 async function approvePendingBrand(id, card) {
   const brand = state.brands.find((candidate) => candidate.id === id);
   if (!brand) return;
+  const mergeTargetId = card.querySelector(".pending-merge").value;
+  if (mergeTargetId) {
+    await mergePendingBrand(brand, mergeTargetId);
+    return;
+  }
+
   brand.englishName = card.querySelector(".pending-en").value.trim() || brand.englishName;
   brand.chineseName = card.querySelector(".pending-zh").value.trim();
   brand.aliases = splitAliases(card.querySelector(".pending-aliases").value);
   brand.status = "approved";
+  brand.updatedAt = new Date().toISOString();
   refreshDeviceBrandNames(brand);
+  await saveState();
+  renderBrandOptions();
+  renderCurrentDevices();
+  renderStats();
+  renderAdmin();
+}
+
+async function mergePendingBrand(brand, targetId) {
+  const target = state.brands.find((candidate) => candidate.id === targetId && candidate.status === "approved");
+  if (!target) return;
+
+  target.aliases = uniqueValues([...(target.aliases || []), brand.englishName, brand.chineseName, ...(brand.aliases || [])]);
+  state.entries.forEach((entry) => {
+    entry.devices.forEach((device) => {
+      if (device.brandId === brand.id) {
+        device.brandId = target.id;
+        device.brandName = displayBrand(target);
+      }
+    });
+  });
+  currentDevices.forEach((device) => {
+    if (device.brandId === brand.id) {
+      device.brandId = target.id;
+      device.brandName = displayBrand(target);
+    }
+  });
+  brand.status = "merged";
+  brand.updatedAt = new Date().toISOString();
   await saveState();
   renderBrandOptions();
   renderCurrentDevices();
@@ -789,6 +1072,7 @@ async function rejectPendingBrand(id) {
   const brand = state.brands.find((candidate) => candidate.id === id);
   if (!brand) return;
   brand.status = "rejected";
+  brand.updatedAt = new Date().toISOString();
   await saveState();
   renderStats();
   renderAdmin();

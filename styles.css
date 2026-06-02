@@ -184,6 +184,24 @@ main {
   font-weight: 700;
 }
 
+.field-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.field-action-note {
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
+.field small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 input,
 select,
 textarea {
@@ -381,6 +399,158 @@ textarea:focus {
   line-height: 1.65;
 }
 
+.records-layout {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.records-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.records-heading {
+  align-items: end;
+}
+
+.record-search {
+  min-width: min(320px, 100%);
+}
+
+.records-summary {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.record-list {
+  display: grid;
+  gap: 14px;
+}
+
+.record-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.record-card-title {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.record-card-title h3,
+.record-card-title p,
+.record-count,
+.record-note {
+  margin: 0;
+}
+
+.record-count {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.record-card-title h3 {
+  overflow-wrap: anywhere;
+}
+
+.record-card-title p,
+.record-note {
+  color: var(--muted);
+}
+
+.modal-open {
+  overflow: hidden;
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 28, 22, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.modal-dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 18px;
+  width: min(760px, 100%);
+  max-height: min(80vh, 900px);
+  padding: 22px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.modal-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modal-header h2,
+.modal-subtitle,
+.modal-body .record-count {
+  margin: 0;
+}
+
+.modal-subtitle {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.modal-body {
+  display: grid;
+  gap: 14px;
+}
+
+.record-device-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.record-device-list li {
+  overflow-wrap: anywhere;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.pagination span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .stats-toolbar {
   display: flex;
   align-items: end;
@@ -517,5 +687,19 @@ textarea:focus {
 
   .panel-heading {
     flex-direction: column;
+  }
+
+  .record-card-title {
+    flex-direction: column;
+  }
+
+  .record-card-title .primary-button {
+    width: 100%;
+  }
+
+  .record-card,
+  .modal-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
