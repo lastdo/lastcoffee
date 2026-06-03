@@ -6,16 +6,14 @@
 - This is not reliable long-term storage. Reboot, redeploy, or platform resource recycling may lose local file changes.
 - Before public launch, move shared state to a persistent external data source.
 
-Recommended options:
+Planned target:
 
-- Google Sheets: easiest for manual inspection and small community data.
-- Supabase: better if we want database-style querying, auth, and admin tools.
-- Firestore: good managed document store, but setup is heavier.
+- Supabase: persistent shared storage for local development and Streamlit Cloud.
 
 ## Admin Access
 
 - The Streamlit cloud app currently exposes the admin tools as a normal `後台` tab.
-- Unlike the local HTML version, there is no `/lastcoffee/admin` route or `?admin` gate.
+- There is no separate admin route; admin tools are inside the Streamlit `後台` tab.
 - Anyone who can open the public Streamlit app can potentially access the admin tab.
 
 Needed before public launch:
@@ -36,23 +34,11 @@ Needed:
 - Make local development read/write the shared backend when desired.
 - Keep a local-only fallback only for demo or offline testing.
 
-## Streamlit / HTML Version Sync
+## Streamlit Only
 
-- Cloud uses `streamlit_app.py`.
-- Local HTML/server mode uses `index.html`, `app.js`, `styles.css`, and `server.py`.
-- Recent features must be mirrored between both versions, or the cloud UI and local UI will diverge.
-
-Current synced features:
-
-- Records page with grouped Bahamut IDs.
-- Record detail dialog titled `器材火力展示!`.
-- Clear pending-brand entry hint.
-- Pending-brand statistics separation.
-- Admin approve/reject/merge flow.
-
-Ongoing risk:
-
-- Any new feature added to one UI must be explicitly ported to the other unless we retire one version.
+- `streamlit_app.py` is the only active app entry.
+- The old HTML/CSS/JS local server version has been retired to avoid UI drift.
+- F5 launches the Streamlit app.
 
 ## Public Launch Blockers
 
