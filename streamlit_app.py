@@ -199,6 +199,12 @@ def supabase_enabled() -> bool:
     return bool(url and key)
 
 
+def set_storage_status(mode: str, ok: bool, message: str = "") -> None:
+    st.session_state.storage_mode = mode
+    st.session_state.storage_ok = ok
+    st.session_state.storage_message = message
+
+
 @st.cache_resource(show_spinner=False)
 def supabase_client(url: str, key: str):
     from supabase import create_client
@@ -340,6 +346,17 @@ def save_state_to_supabase(state: dict) -> bool:
             active_ids.add(row["id"])
     if active_rows:
         client.table(SUPABASE_ITEMS_TABLE).upsert(active_rows, on_conflict="id").execute()
+        verify_response = (
+            client.table(SUPABASE_ITEMS_TABLE)
+            .select("id")
+            .in_("id", list(active_ids))
+            .eq("status", "active")
+            .execute()
+        )
+        saved_ids = {row.get("id") for row in (verify_response.data or []) if row.get("id")}
+        missing_ids = active_ids - saved_ids
+        if missing_ids:
+            raise RuntimeError(f"Supabase 驗證失敗：{len(missing_ids)} 筆器材未出現在 census_items。")
 
     existing_response = client.table(SUPABASE_ITEMS_TABLE).select("id").eq("status", "active").execute()
     for row in existing_response.data or []:
@@ -359,9 +376,11 @@ def load_state() -> dict:
         try:
             state = load_state_from_supabase()
             if state is not None:
+                set_storage_status("Supabase", True)
                 st.session_state.state = state
                 return state
         except Exception as error:
+            set_storage_status("本機 JSON fallback", False, str(error))
             st.warning(f"Supabase 載入失敗，暫時改用本機資料：{error}")
     if STATE_FILE.exists():
         try:
@@ -370,23 +389,28 @@ def load_state() -> dict:
             state = normalize_state({})
     else:
         state = normalize_state({})
+    set_storage_status("本機 JSON fallback", True)
     st.session_state.state = state
     return state
 
 
-def save_state(state: dict) -> None:
+def save_state(state: dict) -> bool:
     if supabase_enabled():
         try:
             if save_state_to_supabase(state):
+                set_storage_status("Supabase", True)
                 st.session_state.state = state
-                return
+                return True
         except Exception as error:
+            set_storage_status("Supabase", False, str(error))
             st.error(f"Supabase 儲存失敗，資料未寫入遠端：{error}")
-            return
+            return False
 
     DATA_DIR.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    set_storage_status("本機 JSON fallback", True)
     st.session_state.state = state
+    return True
 
 
 def approved_brands(state: dict) -> list[dict]:
@@ -866,8 +890,8 @@ def render_form(state: dict) -> None:
                     "note": note.strip(),
                 }
             )
-            save_state(state)
-            st.success("已加入設備。")
+            if save_state(state):
+                st.success("已加入設備。")
 
     st.markdown("#### 本次填寫的設備")
     if st.session_state.devices:
@@ -912,11 +936,13 @@ def render_form(state: dict) -> None:
             entry["createdAt"] = state["entries"][existing_index].get("createdAt", now)
             state["entries"][existing_index] = entry
 
-        save_state(state)
-        st.session_state.last_post = build_post(entry)
-        st.session_state.devices = []
-        st.session_state.editing_entry_id = None
-        st.success("已儲存，貼文已產生。")
+        if save_state(state):
+            st.session_state.last_post = build_post(entry)
+            st.session_state.devices = []
+            st.session_state.editing_entry_id = None
+            st.success("已儲存，貼文已產生。")
+        else:
+            st.warning("遠端儲存未成功，這次送出沒有完成寫入。")
 
     if st.session_state.last_post:
         st.text_area("貼文內容", value=st.session_state.last_post, height=360)
@@ -1423,7 +1449,10 @@ def main() -> None:
 
     st.title("巴哈耳機普查")
     st.caption("2026 Bahamut Audio Census")
-    st.caption(f"資料儲存：{'Supabase' if supabase_enabled() else '本機 JSON fallback'}")
+    storage_mode = st.session_state.get("storage_mode", "本機 JSON fallback")
+    st.caption(f"資料儲存：{storage_mode}")
+    if st.session_state.get("storage_ok") is False and st.session_state.get("storage_message"):
+        st.caption(f"最近錯誤：{st.session_state.get('storage_message')}")
 
     page = st.radio(
         "頁面",
