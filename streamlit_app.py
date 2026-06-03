@@ -103,6 +103,42 @@ def create_id() -> str:
     return str(uuid.uuid4())
 
 
+def brand_sort_key(brand: dict) -> tuple[str, str]:
+    return (normalize(brand.get("englishName", "")), normalize(brand.get("chineseName", "")))
+
+
+def next_brand_id(state: dict) -> str:
+    max_index = 0
+    for brand in state.get("brands", []):
+        match = re.fullmatch(r"brand-(\d+)", str(brand.get("id", "")))
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"brand-{max_index + 1}"
+
+
+def next_entry_id(state: dict) -> str:
+    max_index = 0
+    for entry in state.get("entries", []):
+        match = re.fullmatch(r"entry-(\d+)", str(entry.get("id", "")))
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"entry-{max_index + 1}"
+
+
+def next_item_id(state: dict) -> str:
+    max_index = 0
+    for entry in state.get("entries", []):
+        for device in entry.get("devices", []):
+            match = re.fullmatch(r"item-(\d+)", str(device.get("id", "")))
+            if match:
+                max_index = max(max_index, int(match.group(1)))
+    for device in st.session_state.get("devices", []):
+        match = re.fullmatch(r"item-(\d+)", str(device.get("id", "")))
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return f"item-{max_index + 1}"
+
+
 def display_brand(brand: dict) -> str:
     chinese = brand.get("chineseName", "")
     return f"{brand.get('englishName', '')} {chinese}".strip()
@@ -414,7 +450,8 @@ def save_state(state: dict) -> bool:
 
 
 def approved_brands(state: dict) -> list[dict]:
-    return [brand for brand in state["brands"] if brand.get("status") == "approved"]
+    brands = [brand for brand in state["brands"] if brand.get("status") == "approved"]
+    return sorted(brands, key=brand_sort_key)
 
 
 def pending_brands(state: dict) -> list[dict]:
@@ -444,7 +481,7 @@ def create_pending_brand(state: dict, raw_name: str) -> dict:
         return existing
 
     brand = {
-        "id": create_id(),
+        "id": next_brand_id(state),
         "englishName": raw_name,
         "chineseName": "",
         "aliases": [raw_name],
@@ -882,7 +919,7 @@ def render_form(state: dict) -> None:
             brand = find_brand(state, picked_brand) or create_pending_brand(state, picked_brand)
             st.session_state.devices.append(
                 {
-                    "id": create_id(),
+                    "id": next_item_id(state),
                     "type": device_type,
                     "brandId": brand["id"],
                     "brandName": display_brand(brand),
@@ -918,7 +955,7 @@ def render_form(state: dict) -> None:
 
         now = now_iso()
         entry = {
-            "id": st.session_state.editing_entry_id or create_id(),
+            "id": st.session_state.editing_entry_id or next_entry_id(state),
             "bahamutId": bahamut_id.strip(),
             "generalNote": general_note.strip(),
             "devices": [dict(device) for device in st.session_state.devices],
@@ -1101,7 +1138,7 @@ def render_model_review(state: dict) -> None:
             f" -> {last_snapshot.get('canonicalModel', '')}"
         )
 
-    approved = sorted(approved_brands(state), key=lambda brand: display_brand(brand).lower())
+    approved = approved_brands(state)
     if not approved:
         st.info("目前沒有正式品牌，請先完成品牌審核。")
         return
@@ -1321,7 +1358,7 @@ def render_brand_admin(state: dict) -> None:
             else:
                 state["brands"].append(
                     {
-                        "id": create_id(),
+                        "id": next_brand_id(state),
                         "englishName": english.strip(),
                         "chineseName": chinese.strip(),
                         "aliases": unique_values(aliases.split(",")),
@@ -1364,7 +1401,7 @@ def render_brand_admin(state: dict) -> None:
     if not pending:
         st.info("目前沒有待審品牌。")
 
-    approved = sorted(approved_brands(state), key=lambda brand: display_brand(brand).lower())
+    approved = approved_brands(state)
     approved_options = ["審核為新品牌"] + [display_brand(brand) for brand in approved]
 
     for brand in pending:
@@ -1414,7 +1451,7 @@ def render_brand_admin(state: dict) -> None:
             else:
                 state["brands"].append(
                     {
-                        "id": create_id(),
+                        "id": next_brand_id(state),
                         "englishName": english.strip(),
                         "chineseName": chinese.strip(),
                         "aliases": unique_values(aliases.split(",")),
