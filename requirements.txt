@@ -1,2 +1,3 @@
 streamlit>=1.45
 google-genai>=1.0
+supabase>=2.10

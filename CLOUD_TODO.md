@@ -2,13 +2,12 @@
 
 ## Data Persistence
 
-- Streamlit Cloud currently writes survey state to `data/census.json` inside the app container.
-- This is not reliable long-term storage. Reboot, redeploy, or platform resource recycling may lose local file changes.
-- Before public launch, move shared state to a persistent external data source.
-
 Planned target:
 
 - Supabase: persistent shared storage for local development and Streamlit Cloud.
+- Schema file: `supabase/schema.sql`.
+- Required Streamlit secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+- Local JSON remains only as an offline fallback when Supabase secrets are missing.
 
 ## Admin Access
 
@@ -24,13 +23,11 @@ Needed before public launch:
 
 ## Local vs Cloud Data
 
-- Local runs against the local `data/census.json`.
-- Streamlit Cloud runs against its own deployed/container-side `data/census.json`.
-- Local admin approval does not modify cloud-submitted pending brands.
+- Local and cloud should point at the same Supabase project when shared testing is desired.
+- If Supabase secrets are missing, that runtime falls back to local `data/census.json`.
 
 Needed:
 
-- Use the same external data source for both local and cloud.
 - Make local development read/write the shared backend when desired.
 - Keep a local-only fallback only for demo or offline testing.
 

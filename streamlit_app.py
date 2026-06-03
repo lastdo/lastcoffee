@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 STATE_FILE = DATA_DIR / "census.json"
 RECORDS_PAGE_SIZE = 8
+SUPABASE_BRANDS_TABLE = "census_brands"
+SUPABASE_ITEMS_TABLE = "census_items"
 
 DEVICE_TYPES = [
     "耳道式耳機",
@@ -175,9 +177,192 @@ def normalize_state(raw: dict | None) -> dict:
     }
 
 
+def secret_value(name: str) -> str:
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return str(value or os.getenv(name, "")).strip()
+
+
+def supabase_settings() -> tuple[str, str]:
+    url = secret_value("SUPABASE_URL")
+    key = secret_value("SUPABASE_SERVICE_ROLE_KEY") or secret_value("SUPABASE_ANON_KEY")
+    placeholders = ("請把你的", "貼在這裡")
+    if any(text in url for text in placeholders) or any(text in key for text in placeholders):
+        return "", ""
+    return url, key
+
+
+def supabase_enabled() -> bool:
+    url, key = supabase_settings()
+    return bool(url and key)
+
+
+@st.cache_resource(show_spinner=False)
+def supabase_client(url: str, key: str):
+    from supabase import create_client
+
+    return create_client(url, key)
+
+
+def get_supabase_client():
+    url, key = supabase_settings()
+    if not url or not key:
+        return None
+    return supabase_client(url, key)
+
+
+def brand_from_supabase(row: dict) -> dict:
+    return {
+        "id": row.get("id") or create_id(),
+        "englishName": row.get("english_name", ""),
+        "chineseName": row.get("chinese_name", ""),
+        "aliases": row.get("aliases", []) if isinstance(row.get("aliases"), list) else [],
+        "status": row.get("status", "approved"),
+        "createdAt": row.get("created_at", ""),
+        "updatedAt": row.get("updated_at", ""),
+    }
+
+
+def brand_to_supabase(brand: dict) -> dict:
+    now = now_iso()
+    return {
+        "id": brand.get("id") or create_id(),
+        "english_name": brand.get("englishName", ""),
+        "chinese_name": brand.get("chineseName", ""),
+        "aliases": brand.get("aliases", []) if isinstance(brand.get("aliases"), list) else [],
+        "status": brand.get("status", "approved"),
+        "created_at": brand.get("createdAt") or now,
+        "updated_at": brand.get("updatedAt") or now,
+    }
+
+
+def device_to_supabase(entry: dict, device: dict) -> dict:
+    now = now_iso()
+    model = str(device.get("model", "")).strip()
+    original_model = str(device.get("originalModel") or model).strip()
+    canonical_model = str(device.get("canonicalModel") or model).strip()
+    return {
+        "id": device.get("id") or create_id(),
+        "entry_id": entry.get("id") or entry.get("bahamutId") or create_id(),
+        "bahamut_id": entry.get("bahamutId", ""),
+        "category": device.get("type", ""),
+        "brand_id": device.get("brandId") or None,
+        "brand": device.get("brandName", ""),
+        "canonical_brand": device.get("canonicalBrand") or device.get("brandName", ""),
+        "model": original_model,
+        "canonical_model": canonical_model,
+        "item_note": device.get("note", ""),
+        "user_note": entry.get("generalNote", ""),
+        "status": device.get("status", "active"),
+        "created_at": entry.get("createdAt") or now,
+        "updated_at": entry.get("updatedAt") or now,
+        "deleted_at": device.get("deletedAt"),
+    }
+
+
+def state_from_supabase(brands: list[dict], items: list[dict]) -> dict:
+    grouped = {}
+    for row in items:
+        entry_id = row.get("entry_id") or row.get("bahamut_id") or create_id()
+        entry = grouped.setdefault(
+            entry_id,
+            {
+                "id": entry_id,
+                "bahamutId": row.get("bahamut_id", ""),
+                "generalNote": row.get("user_note", "") or "",
+                "devices": [],
+                "createdAt": row.get("created_at", ""),
+                "updatedAt": row.get("updated_at", ""),
+            },
+        )
+        entry["generalNote"] = entry.get("generalNote") or row.get("user_note", "") or ""
+        if (row.get("created_at") or "") < (entry.get("createdAt") or row.get("created_at") or ""):
+            entry["createdAt"] = row.get("created_at", "")
+        if (row.get("updated_at") or "") > (entry.get("updatedAt") or ""):
+            entry["updatedAt"] = row.get("updated_at", "")
+
+        raw_model = row.get("model", "") or ""
+        canonical_model = row.get("canonical_model") or raw_model
+        device = {
+            "id": row.get("id") or create_id(),
+            "type": row.get("category", ""),
+            "brandId": row.get("brand_id", ""),
+            "brandName": row.get("canonical_brand") or row.get("brand", ""),
+            "model": canonical_model,
+            "note": row.get("item_note", "") or "",
+            "status": row.get("status", "active"),
+        }
+        if raw_model and raw_model != canonical_model:
+            device["originalModel"] = raw_model
+            device["canonicalModel"] = canonical_model
+        entry["devices"].append(device)
+
+    return normalize_state(
+        {
+            "brands": [brand_from_supabase(row) for row in brands],
+            "entries": list(grouped.values()),
+        }
+    )
+
+
+def load_state_from_supabase() -> dict | None:
+    client = get_supabase_client()
+    if not client:
+        return None
+    brand_response = client.table(SUPABASE_BRANDS_TABLE).select("*").execute()
+    item_response = (
+        client.table(SUPABASE_ITEMS_TABLE)
+        .select("*")
+        .eq("status", "active")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return state_from_supabase(brand_response.data or [], item_response.data or [])
+
+
+def save_state_to_supabase(state: dict) -> bool:
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    brand_rows = [brand_to_supabase(brand) for brand in state.get("brands", [])]
+    if brand_rows:
+        client.table(SUPABASE_BRANDS_TABLE).upsert(brand_rows, on_conflict="id").execute()
+
+    active_rows = []
+    active_ids = set()
+    for entry in state.get("entries", []):
+        for device in entry.get("devices", []):
+            row = device_to_supabase(entry, device)
+            active_rows.append(row)
+            active_ids.add(row["id"])
+    if active_rows:
+        client.table(SUPABASE_ITEMS_TABLE).upsert(active_rows, on_conflict="id").execute()
+
+    existing_response = client.table(SUPABASE_ITEMS_TABLE).select("id").eq("status", "active").execute()
+    for row in existing_response.data or []:
+        row_id = row.get("id")
+        if row_id and row_id not in active_ids:
+            client.table(SUPABASE_ITEMS_TABLE).update(
+                {"status": "deleted", "deleted_at": now_iso(), "updated_at": now_iso()}
+            ).eq("id", row_id).execute()
+
+    return True
+
+
 def load_state() -> dict:
     if "state" in st.session_state:
         return st.session_state.state
+    if supabase_enabled():
+        try:
+            state = load_state_from_supabase()
+            if state is not None:
+                st.session_state.state = state
+                return state
+        except Exception as error:
+            st.warning(f"Supabase 載入失敗，暫時改用本機資料：{error}")
     if STATE_FILE.exists():
         try:
             state = normalize_state(json.loads(STATE_FILE.read_text(encoding="utf-8")))
@@ -190,6 +375,15 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
+    if supabase_enabled():
+        try:
+            if save_state_to_supabase(state):
+                st.session_state.state = state
+                return
+        except Exception as error:
+            st.error(f"Supabase 儲存失敗，資料未寫入遠端：{error}")
+            return
+
     DATA_DIR.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     st.session_state.state = state
@@ -1229,6 +1423,7 @@ def main() -> None:
 
     st.title("巴哈耳機普查")
     st.caption("2026 Bahamut Audio Census")
+    st.caption(f"資料儲存：{'Supabase' if supabase_enabled() else '本機 JSON fallback'}")
 
     page = st.radio(
         "頁面",
