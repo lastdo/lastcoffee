@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "lastcoffee: free-port-8000",
+      "label": "lastcoffee: free-port-8501",
       "type": "shell",
       "command": "powershell",
       "args": [
@@ -10,7 +10,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "$conn = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue; if ($conn) { Stop-Process -Id $conn[0].OwningProcess -Force }"
+        "$conn = Get-NetTCPConnection -LocalPort 8501 -State Listen -ErrorAction SilentlyContinue; if ($conn) { Stop-Process -Id $conn[0].OwningProcess -Force }"
       ],
       "problemMatcher": []
     }

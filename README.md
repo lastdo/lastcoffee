@@ -4,26 +4,14 @@
 
 ## Run
 
-本機預覽：
+本機預覽與 F5 啟動都使用 Streamlit 主線：
 
 ```powershell
-python server.py --port 8000
+python -m streamlit run streamlit_app.py
 ```
 
-區網分享：
-
-```powershell
-python server.py --public --port 8000
-```
-
-一般使用者開啟：
+啟動後開啟：
 
 ```text
-http://localhost:8000/lastcoffee
-```
-
-管理模式：
-
-```text
-http://localhost:8000/lastcoffee/admin
+http://localhost:8501
 ```
