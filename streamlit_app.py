@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import copy
 import io
 import json
 import os
@@ -493,6 +494,22 @@ def create_pending_brand(state: dict, raw_name: str) -> dict:
     return brand
 
 
+def resolve_device_brands_for_submit(state: dict, devices: list[dict]) -> list[dict]:
+    resolved = []
+    for device in devices:
+        next_device = dict(device)
+        brand = brand_by_id(state, next_device.get("brandId", "")) or find_brand(
+            state,
+            next_device.get("brandName", ""),
+        )
+        if not brand:
+            brand = create_pending_brand(state, next_device.get("brandName", ""))
+        next_device["brandId"] = brand["id"]
+        next_device["brandName"] = display_brand(brand)
+        resolved.append(next_device)
+    return resolved
+
+
 def build_post(entry: dict) -> str:
     groups = defaultdict(list)
     for device in entry.get("devices", []):
@@ -880,6 +897,7 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("pending_edit_entry_id", None)
     st.session_state.setdefault("requested_page", None)
     st.session_state.setdefault("records_page", 1)
+    st.session_state.setdefault("expanded_record_id", None)
     st.session_state.setdefault("active_page", "填寫")
 
 
@@ -900,35 +918,41 @@ def render_form(state: dict) -> None:
     if st.session_state.editing_entry_id:
         st.info("編輯模式：資料已載入，修改後送出會覆蓋原紀錄。")
 
+    bahamut_id = st.text_input("巴哈 ID", key="bahamut_id")
+
     with st.form("device_form", clear_on_submit=True):
         cols = st.columns([1, 1, 1])
         device_type = cols[0].selectbox("設備類型", DEVICE_TYPES)
         brand_options = [display_brand(brand) for brand in approved_brands(state)]
         brand_name = cols[1].selectbox("品牌", [""] + brand_options, index=0)
         custom_brand = cols[1].text_input("清單沒有？新增待審品牌")
-        cols[1].caption("直接輸入清單外品牌，加入設備時會送到後台待確認。")
+        cols[1].caption("直接輸入清單外品牌，送出整份問卷後會送到後台待確認。")
         model = cols[2].text_input("型號", placeholder="例如 HA-FW02、HD800S、K9 Pro")
         note = st.text_input("設備備註", placeholder="例如 改線、常用搭配、版本")
         submitted = st.form_submit_button("加入設備")
 
     if submitted:
         picked_brand = custom_brand.strip() or brand_name.strip()
-        if not picked_brand or not model.strip():
-            st.warning("請填寫品牌與型號。")
+        missing = []
+        if not picked_brand:
+            missing.append("請選擇品牌或輸入待審品牌")
+        if not model.strip():
+            missing.append("請填寫型號")
+        if missing:
+            st.warning("\n".join(f"- {item}" for item in missing))
         else:
-            brand = find_brand(state, picked_brand) or create_pending_brand(state, picked_brand)
+            brand = find_brand(state, picked_brand)
             st.session_state.devices.append(
                 {
                     "id": next_item_id(state),
                     "type": device_type,
-                    "brandId": brand["id"],
-                    "brandName": display_brand(brand),
+                    "brandId": brand["id"] if brand else "",
+                    "brandName": display_brand(brand) if brand else picked_brand,
                     "model": model.strip(),
                     "note": note.strip(),
                 }
             )
-            if save_state(state):
-                st.success("已加入設備。")
+            st.success("已加入設備。")
 
     st.markdown("#### 本次填寫的設備")
     if st.session_state.devices:
@@ -942,23 +966,26 @@ def render_form(state: dict) -> None:
         st.info("尚未加入設備。")
 
     st.divider()
-    bahamut_id = st.text_input("巴哈 ID", key="bahamut_id")
     general_note = st.text_area("補充備註", key="general_note")
 
     if st.button("送出並產生貼文", type="primary"):
+        missing = []
         if not bahamut_id.strip():
-            st.warning("請填寫巴哈 ID。")
-            return
+            missing.append("請填寫巴哈 ID")
         if not st.session_state.devices:
-            st.warning("請至少加入一項設備。")
+            missing.append("請至少加入一項設備")
+        if missing:
+            st.warning("\n".join(f"- {item}" for item in missing))
             return
 
+        previous_state = copy.deepcopy(state)
         now = now_iso()
+        submitted_devices = resolve_device_brands_for_submit(state, st.session_state.devices)
         entry = {
             "id": st.session_state.editing_entry_id or next_entry_id(state),
             "bahamutId": bahamut_id.strip(),
             "generalNote": general_note.strip(),
-            "devices": [dict(device) for device in st.session_state.devices],
+            "devices": submitted_devices,
             "createdAt": now,
             "updatedAt": now,
         }
@@ -979,6 +1006,8 @@ def render_form(state: dict) -> None:
             st.session_state.editing_entry_id = None
             st.success("已儲存，貼文已產生。")
         else:
+            state.clear()
+            state.update(previous_state)
             st.warning("遠端儲存未成功，這次送出沒有完成寫入。")
 
     if st.session_state.last_post:
@@ -1016,8 +1045,7 @@ def render_history(state: dict) -> None:
                 st.rerun()
 
 
-@st.dialog("器材火力展示!")
-def show_record_detail(entry: dict) -> None:
+def render_record_detail(entry: dict) -> None:
     st.caption(f"{entry.get('bahamutId', '')}｜提交時間：{format_time(entry.get('createdAt') or entry.get('updatedAt', ''))}")
     st.write(f"設備數：{len(entry.get('devices', []))}")
     for device in entry.get("devices", []):
@@ -1056,8 +1084,14 @@ def render_records(state: dict) -> None:
             cols[0].markdown(f"**{entry.get('bahamutId', '未填寫')}**")
             cols[0].caption(f"提交時間：{format_time(entry.get('createdAt') or entry.get('updatedAt', ''))}")
             cols[1].write(f"設備數：{len(entry.get('devices', []))}")
-            if cols[2].button("查看", key=f"record-view-{entry['id']}"):
-                show_record_detail(entry)
+            is_expanded = st.session_state.expanded_record_id == entry["id"]
+            label = "收合" if is_expanded else "查看"
+            if cols[2].button(label, key=f"record-view-{entry['id']}"):
+                st.session_state.expanded_record_id = None if is_expanded else entry["id"]
+                st.rerun()
+            if is_expanded:
+                st.divider()
+                render_record_detail(entry)
 
     if total_pages > 1:
         prev_col, page_col, next_col = st.columns([1, 2, 1])
