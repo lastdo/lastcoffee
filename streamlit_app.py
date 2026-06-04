@@ -615,6 +615,46 @@ def rank_rows(items: list[dict], key: str, limit: int = 10) -> list[tuple[str, i
     return counts.most_common(limit)
 
 
+def chart_rows(rows: list[tuple[str, int]]) -> list[dict]:
+    return [{"label": label, "count": count} for label, count in rows]
+
+
+def render_bar_chart(title: str, rows: list[tuple[str, int]], empty_text: str, height: int = 260) -> None:
+    st.markdown(f"#### {title}")
+    values = chart_rows(rows)
+    if not values:
+        st.info(empty_text)
+        return
+    max_count = max(row["count"] for row in values)
+    st.vega_lite_chart(
+        {
+            "data": {"values": values},
+            "mark": {"type": "bar", "cornerRadiusEnd": 3, "tooltip": True},
+            "encoding": {
+                "x": {
+                    "field": "count",
+                    "type": "quantitative",
+                    "title": "數量",
+                    "scale": {"domainMin": 0, "domainMax": max_count},
+                    "axis": {"values": list(range(1, max_count + 1)), "format": "d"},
+                },
+                "y": {
+                    "field": "label",
+                    "type": "nominal",
+                    "title": None,
+                    "sort": "-x",
+                },
+                "tooltip": [
+                    {"field": "label", "type": "nominal", "title": "項目"},
+                    {"field": "count", "type": "quantitative", "title": "數量"},
+                ],
+            },
+            "height": height,
+        },
+        use_container_width=True,
+    )
+
+
 def normalize_model_key(value: str, brand_names: list[str] | None = None) -> str:
     text = normalize(value)
     for brand_name in brand_names or []:
@@ -1114,11 +1154,47 @@ def render_stats(state: dict) -> None:
     cols[2].metric("正式品牌", len(approved_brands(state)))
     cols[3].metric("待確認品牌", len(pending_brands(state)))
 
+    type_rows = rank_rows(devices, "type")
+    type_options = [row[0] for row in type_rows]
+    selected_type = type_options[0] if type_options else ""
+    if type_options:
+        selected_type = st.selectbox("品項類型", type_options, key="stats_device_type")
+    typed_approved_devices = [
+        device for device in approved_devices if device.get("type") == selected_type
+    ]
+    brand_rows = rank_rows(typed_approved_devices, "brandName")
+    model_rows = Counter(
+        f"{device.get('brandName', '')} {device.get('model', '')}".strip()
+        for device in typed_approved_devices
+        if device.get("model")
+    ).most_common(10)
+
+    st.markdown("### 成果視覺化")
+    chart_left, chart_right = st.columns(2)
+    with chart_left:
+        render_bar_chart("類型分布", type_rows, "目前沒有可視覺化的設備類型。")
+    with chart_right:
+        chart_tab_brand, chart_tab_model = st.tabs(["Top 品牌", "Top 型號"])
+        with chart_tab_brand:
+            render_bar_chart(
+                f"{selected_type} Top 品牌" if selected_type else "Top 品牌",
+                brand_rows,
+                "目前沒有這個品項的正式品牌設備可視覺化。",
+            )
+        with chart_tab_model:
+            render_bar_chart(
+                f"{selected_type} Top 型號" if selected_type else "Top 型號",
+                model_rows,
+                "目前沒有這個品項的正式型號設備可視覺化。",
+            )
+
+    st.divider()
+
     left, right = st.columns(2)
     left.markdown("#### 類型排名")
-    left.table(rank_rows(devices, "type"))
-    right.markdown("#### 品牌排名")
-    right.table(rank_rows(approved_devices, "brandName"))
+    left.table(type_rows)
+    right.markdown(f"#### 品牌排名｜{selected_type}" if selected_type else "#### 品牌排名")
+    right.table(brand_rows)
 
     pending_rows = []
     for brand in pending_brands(state):
@@ -1129,13 +1205,7 @@ def render_stats(state: dict) -> None:
     pending_col, model_col = st.columns(2)
     pending_col.markdown("#### 待確認品牌")
     pending_col.table(pending_rows)
-    model_col.markdown("#### 型號排名")
-
-    model_rows = Counter(
-        f"{device.get('brandName', '')} {device.get('model', '')}".strip()
-        for device in approved_devices
-        if device.get("model")
-    ).most_common(10)
+    model_col.markdown(f"#### 型號排名｜{selected_type}" if selected_type else "#### 型號排名")
     model_col.table(model_rows)
 
     st.download_button("下載 CSV", state_to_csv(state), "bahamut-audio-census.csv", "text/csv")
