@@ -21,6 +21,229 @@ RECORDS_PAGE_SIZE = 8
 SUPABASE_BRANDS_TABLE = "census_brands"
 SUPABASE_ITEMS_TABLE = "census_items"
 
+def inject_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --census-bg: #f7f8fa;
+            --census-panel: #ffffff;
+            --census-panel-soft: #fbfcfd;
+            --census-line: #d9dee7;
+            --census-line-strong: #c5ccd8;
+            --census-ink: #172033;
+            --census-muted: #667085;
+            --census-accent: #e5484d;
+            --census-accent-dark: #c92f36;
+            --census-teal: #0f766e;
+            --census-shadow: 0 12px 28px rgba(23, 32, 51, 0.08);
+        }
+
+        .stApp {
+            background:
+                linear-gradient(180deg, #ffffff 0%, var(--census-bg) 220px),
+                var(--census-bg);
+            color: var(--census-ink);
+        }
+
+        .block-container {
+            max-width: 1180px;
+            padding-top: 2.25rem;
+            padding-bottom: 4rem;
+        }
+
+        h1, h2, h3 {
+            color: var(--census-ink);
+            letter-spacing: 0;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 3vw, 3rem);
+            font-weight: 800;
+            margin-bottom: 0.2rem;
+        }
+
+        h2, [data-testid="stHeadingWithActionElements"] h2 {
+            font-size: 1.65rem;
+            font-weight: 760;
+            margin-top: 1.35rem;
+            padding-top: 0.35rem;
+        }
+
+        h3 {
+            font-size: 1.18rem;
+            font-weight: 720;
+        }
+
+        [data-testid="stCaptionContainer"] {
+            color: var(--census-muted);
+        }
+
+        [data-testid="stMarkdownContainer"] p {
+            line-height: 1.65;
+        }
+
+        div[data-testid="stRadio"] {
+            margin: 1.15rem 0 1.35rem;
+        }
+
+        div[data-testid="stRadio"] > div {
+            gap: 0.45rem;
+            padding: 0.35rem;
+            width: fit-content;
+            max-width: 100%;
+            border: 1px solid var(--census-line);
+            border-radius: 8px;
+            background: var(--census-panel);
+            box-shadow: 0 8px 20px rgba(23, 32, 51, 0.06);
+        }
+
+        div[data-testid="stRadio"] label {
+            min-height: 2.15rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 6px;
+            color: var(--census-muted);
+            transition: background 120ms ease, color 120ms ease;
+        }
+
+        div[data-testid="stRadio"] label:has(input:checked) {
+            background: #fff1f1;
+            color: var(--census-accent-dark);
+            font-weight: 700;
+        }
+
+        div[data-testid="stForm"],
+        div[data-testid="stExpander"],
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border-color: var(--census-line) !important;
+            border-radius: 8px !important;
+            background: var(--census-panel);
+            box-shadow: var(--census-shadow);
+        }
+
+        div[data-testid="stForm"] {
+            padding: 1.1rem 1.2rem 1.2rem;
+        }
+
+        div[data-testid="stExpander"] {
+            overflow: hidden;
+        }
+
+        label[data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] p {
+            color: #344054;
+            font-size: 0.9rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] > div,
+        textarea {
+            border-color: var(--census-line-strong) !important;
+            border-radius: 8px !important;
+            background-color: var(--census-panel-soft) !important;
+            box-shadow: inset 0 1px 0 rgba(23, 32, 51, 0.03);
+            transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+        }
+
+        div[data-baseweb="input"]:focus-within > div,
+        div[data-baseweb="select"]:focus-within > div,
+        textarea:focus {
+            border-color: var(--census-teal) !important;
+            background-color: #ffffff !important;
+            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12) !important;
+        }
+
+        input,
+        textarea,
+        div[data-baseweb="select"] span {
+            color: var(--census-ink) !important;
+            font-size: 0.98rem !important;
+        }
+
+        div[data-testid="stButton"] button,
+        div[data-testid="stFormSubmitButton"] button,
+        div[data-testid="stDownloadButton"] button {
+            min-height: 2.55rem;
+            border-radius: 8px;
+            border: 1px solid var(--census-line-strong);
+            background: #ffffff;
+            color: var(--census-ink);
+            font-weight: 720;
+            box-shadow: 0 4px 10px rgba(23, 32, 51, 0.06);
+            transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+        }
+
+        div[data-testid="stButton"] button:hover,
+        div[data-testid="stFormSubmitButton"] button:hover,
+        div[data-testid="stDownloadButton"] button:hover {
+            border-color: var(--census-accent);
+            color: var(--census-accent-dark);
+            box-shadow: 0 8px 18px rgba(229, 72, 77, 0.14);
+            transform: translateY(-1px);
+        }
+
+        div[data-testid="stButton"] button[kind="primary"],
+        div[data-testid="stFormSubmitButton"] button[kind="primary"] {
+            border-color: var(--census-accent);
+            background: var(--census-accent);
+            color: #ffffff;
+        }
+
+        div[data-testid="stButton"] button:disabled,
+        div[data-testid="stFormSubmitButton"] button:disabled {
+            transform: none;
+            box-shadow: none;
+            opacity: 0.62;
+        }
+
+        [data-testid="stAlert"] {
+            border-radius: 8px;
+            border: 1px solid var(--census-line);
+            box-shadow: 0 6px 16px rgba(23, 32, 51, 0.05);
+        }
+
+        hr {
+            margin: 1.4rem 0;
+            border-color: var(--census-line);
+        }
+
+        pre,
+        code {
+            border-radius: 8px !important;
+        }
+
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"] {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: var(--census-shadow);
+        }
+
+        @media (max-width: 720px) {
+            .block-container {
+                padding: 1.1rem 1rem 3rem;
+            }
+
+            div[data-testid="stRadio"] > div {
+                width: 100%;
+            }
+
+            div[data-testid="stRadio"] label {
+                padding-inline: 0.45rem;
+            }
+
+            div[data-testid="column"] {
+                min-width: 100%;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 DEVICE_TYPES = [
     "耳道式耳機",
     "耳罩式耳機",
@@ -936,6 +1159,8 @@ def ensure_session_defaults() -> None:
     st.session_state.setdefault("editing_entry_id", None)
     st.session_state.setdefault("pending_edit_entry_id", None)
     st.session_state.setdefault("requested_page", None)
+    st.session_state.setdefault("history_submitted_bahamut_id", "")
+    st.session_state.setdefault("record_submitted_search", "")
     st.session_state.setdefault("records_page", 1)
     st.session_state.setdefault("expanded_record_id", None)
     st.session_state.setdefault("active_page", "填寫")
@@ -1056,7 +1281,11 @@ def render_form(state: dict) -> None:
 
 def render_history(state: dict) -> None:
     st.subheader("查詢 / 編輯自己的紀錄")
-    bahamut_id = st.text_input("輸入巴哈 ID 查詢", key="history_bahamut_id")
+    search_cols = st.columns([5, 1])
+    bahamut_id = search_cols[0].text_input("輸入巴哈 ID 查詢", key="history_bahamut_id")
+    if search_cols[1].button("查詢", key="history_search_button", type="primary"):
+        st.session_state.history_submitted_bahamut_id = bahamut_id.strip()
+    bahamut_id = st.session_state.history_submitted_bahamut_id
     if not bahamut_id.strip():
         return
     matches = [
@@ -1100,9 +1329,13 @@ def render_records(state: dict) -> None:
     st.subheader("紀錄")
     st.caption("依提交時間倒序查看所有回覆。")
 
-    query = st.text_input("巴哈 ID 搜尋", key="record_search")
-    if query:
+    search_cols = st.columns([5, 1])
+    query_input = search_cols[0].text_input("巴哈 ID 搜尋", key="record_search")
+    if search_cols[1].button("查詢", key="record_search_button", type="primary"):
+        st.session_state.record_submitted_search = query_input.strip()
         st.session_state.records_page = 1
+        st.session_state.expanded_record_id = None
+    query = st.session_state.record_submitted_search
 
     records = record_groups(state, query)
     total_pages = max(1, (len(records) + RECORDS_PAGE_SIZE - 1) // RECORDS_PAGE_SIZE)
@@ -1582,6 +1815,7 @@ def render_admin(state: dict) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="巴哈耳機普查", layout="wide")
+    inject_styles()
     ensure_session_defaults()
     state = load_state()
     requested_page = st.session_state.pop("requested_page", None)
