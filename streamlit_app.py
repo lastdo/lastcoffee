@@ -83,10 +83,12 @@ def inject_styles() -> None:
             line-height: 1.65;
         }
 
+        div[data-testid="stSegmentedControl"],
         div[data-testid="stRadio"] {
             margin: 1.15rem 0 1.35rem;
         }
 
+        div[data-testid="stSegmentedControl"] [role="radiogroup"],
         div[data-testid="stRadio"] > div {
             gap: 0.45rem;
             padding: 0.35rem;
@@ -98,6 +100,7 @@ def inject_styles() -> None:
             box-shadow: 0 8px 20px rgba(23, 32, 51, 0.06);
         }
 
+        div[data-testid="stSegmentedControl"] [role="radiogroup"] label,
         div[data-testid="stRadio"] label {
             min-height: 2.15rem;
             padding: 0.35rem 0.7rem;
@@ -106,6 +109,7 @@ def inject_styles() -> None:
             transition: background 120ms ease, color 120ms ease;
         }
 
+        div[data-testid="stSegmentedControl"] [role="radiogroup"] label:has(input:checked),
         div[data-testid="stRadio"] label:has(input:checked) {
             background: #fff1f1;
             color: var(--census-accent-dark);
@@ -223,15 +227,38 @@ def inject_styles() -> None:
 
         @media (max-width: 720px) {
             .block-container {
-                padding: 1.1rem 1rem 3rem;
+                padding: 0.85rem 1rem 3rem;
+                padding-top: max(0.85rem, env(safe-area-inset-top));
             }
 
+            h1 {
+                font-size: 1.62rem;
+                line-height: 1.18;
+                margin-bottom: 0.05rem;
+            }
+
+            h2, [data-testid="stHeadingWithActionElements"] h2 {
+                font-size: 1.28rem;
+                margin-top: 0.85rem;
+                padding-top: 0.15rem;
+            }
+
+            div[data-testid="stSegmentedControl"],
+            div[data-testid="stRadio"] {
+                margin: 0.75rem 0 0.95rem;
+            }
+
+            div[data-testid="stSegmentedControl"] [role="radiogroup"],
             div[data-testid="stRadio"] > div {
                 width: 100%;
+                gap: 0.25rem;
+                padding: 0.25rem;
             }
 
+            div[data-testid="stSegmentedControl"] [role="radiogroup"] label,
             div[data-testid="stRadio"] label {
                 padding-inline: 0.45rem;
+                min-height: 1.9rem;
             }
 
             div[data-testid="column"] {
@@ -682,6 +709,76 @@ def pending_brands(state: dict) -> list[dict]:
     return [brand for brand in state["brands"] if brand.get("status") == "pending"]
 
 
+def brand_initial(brand: dict) -> str:
+    name = str(brand.get("englishName") or display_brand(brand) or "").strip()
+    if not name:
+        return "#"
+    initial = name[0].upper()
+    return initial if initial.isalpha() else "#"
+
+
+def brand_matched_aliases(brand: dict, query: str) -> list[str]:
+    needle = normalize(query)
+    if not needle:
+        return []
+    return [
+        alias
+        for alias in brand.get("aliases", [])
+        if needle in normalize(alias)
+    ]
+
+
+def brand_matches_query(brand: dict, query: str) -> bool:
+    needle = normalize(query)
+    if not needle:
+        return True
+    fields = [
+        display_brand(brand),
+        brand.get("englishName", ""),
+        brand.get("chineseName", ""),
+        *brand.get("aliases", []),
+    ]
+    return any(needle in normalize(field) for field in fields)
+
+
+def render_approved_brand_directory(state: dict) -> None:
+    st.markdown("#### 正式品牌清單")
+    brands = approved_brands(state)
+    if not brands:
+        st.info("目前沒有正式品牌。")
+        return
+
+    search_col, initial_col = st.columns([3, 1])
+    query = search_col.text_input("搜尋正式品牌", placeholder="輸入品牌英文、中文或 alias", key="approved_brand_search")
+    initials = sorted({brand_initial(brand) for brand in brands})
+    selected_initial = initial_col.selectbox("字母索引", ["全部"] + initials, key="approved_brand_initial")
+
+    filtered = [
+        brand
+        for brand in brands
+        if (selected_initial == "全部" or brand_initial(brand) == selected_initial)
+        and brand_matches_query(brand, query)
+    ]
+
+    st.caption(f"顯示 {len(filtered)} / {len(brands)} 個正式品牌")
+    if not filtered:
+        st.info("找不到符合條件的正式品牌。")
+        return
+
+    rows = []
+    for brand in filtered:
+        aliases = brand.get("aliases", [])
+        matched_aliases = brand_matched_aliases(brand, query)
+        rows.append(
+            {
+                "品牌": display_brand(brand),
+                "Alias": ", ".join(aliases),
+                "命中 alias": ", ".join(matched_aliases) if matched_aliases else "",
+            }
+        )
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def find_brand(state: dict, query: str) -> dict | None:
     needle = normalize(query)
     brand_key = normalize_brand_key(query)
@@ -1113,7 +1210,7 @@ def google_api_key_status(api_key: str) -> tuple[bool, str]:
         return False, "GOOGLE_API_KEY 含有非英文/數字符號字元，請確認沒有貼到中文說明或多餘文字。"
     if len(api_key) < 20:
         return False, "GOOGLE_API_KEY 看起來太短，請確認已貼上完整 key。"
-    return True, f"已讀取 GOOGLE_API_KEY：{api_key[:6]}...{api_key[-4:]}"
+    return True, "Google API key 已設定。"
 
 
 def ask_google_for_model_suggestions(prompt: str, model_name: str, api_key: str) -> tuple[str, str]:
@@ -1192,6 +1289,7 @@ def render_form(state: dict) -> None:
         brand_name = cols[1].selectbox("品牌", [""] + brand_options, index=0)
         custom_brand = cols[1].text_input("清單沒有？新增待審品牌")
         cols[1].caption("直接輸入清單外品牌，送出整份問卷後會送到後台待確認。")
+        brand_error_slot = cols[1].empty()
         model = cols[2].text_input("型號", placeholder="例如 HA-FW02、HD800S、K9 Pro")
         note = st.text_input("設備備註", placeholder="例如 改線、常用搭配、版本")
         submitted = st.form_submit_button("加入設備")
@@ -1200,11 +1298,14 @@ def render_form(state: dict) -> None:
         picked_brand = custom_brand.strip() or brand_name.strip()
         missing = []
         if not picked_brand:
+            brand_error_slot.warning("請選擇品牌或輸入待審品牌")
             missing.append("請選擇品牌或輸入待審品牌")
         if not model.strip():
             missing.append("請填寫型號")
         if missing:
-            st.warning("\n".join(f"- {item}" for item in missing))
+            global_missing = [item for item in missing if item != "請選擇品牌或輸入待審品牌"]
+            if global_missing:
+                st.warning("\n".join(f"- {item}" for item in global_missing))
         else:
             brand = find_brand(state, picked_brand)
             st.session_state.devices.append(
@@ -1425,9 +1526,15 @@ def render_stats(state: dict) -> None:
 
     left, right = st.columns(2)
     left.markdown("#### 類型排名")
-    left.table(type_rows)
+    if type_rows:
+        left.table(type_rows)
+    else:
+        left.info("目前沒有設備類型資料。")
     right.markdown(f"#### 品牌排名｜{selected_type}" if selected_type else "#### 品牌排名")
-    right.table(brand_rows)
+    if brand_rows:
+        right.table(brand_rows)
+    else:
+        right.info("目前沒有品牌排名資料。")
 
     pending_rows = []
     for brand in pending_brands(state):
@@ -1437,9 +1544,15 @@ def render_stats(state: dict) -> None:
 
     pending_col, model_col = st.columns(2)
     pending_col.markdown("#### 待確認品牌")
-    pending_col.table(pending_rows)
+    if pending_rows:
+        pending_col.table(pending_rows)
+    else:
+        pending_col.info("目前沒有待確認品牌。")
     model_col.markdown(f"#### 型號排名｜{selected_type}" if selected_type else "#### 型號排名")
-    model_col.table(model_rows)
+    if model_rows:
+        model_col.table(model_rows)
+    else:
+        model_col.info("目前沒有型號排名資料。")
 
     st.download_button("下載 CSV", state_to_csv(state), "bahamut-audio-census.csv", "text/csv")
     st.download_button(
@@ -1705,8 +1818,7 @@ def render_brand_admin(state: dict) -> None:
                 save_state(state)
                 st.success("已新增品牌。")
 
-    st.markdown("#### 正式品牌清單")
-    st.table([(display_brand(brand), ", ".join(brand.get("aliases", []))) for brand in approved_brands(state)])
+    render_approved_brand_directory(state)
 
 
 def merge_pending_brand(state: dict, pending_brand: dict, target_brand: dict) -> None:
@@ -1800,8 +1912,7 @@ def render_brand_admin(state: dict) -> None:
                 save_state(state)
                 st.success("已新增品牌。")
 
-    st.markdown("#### 正式品牌清單")
-    st.table([(display_brand(brand), ", ".join(brand.get("aliases", []))) for brand in approved_brands(state)])
+    render_approved_brand_directory(state)
 
 
 def render_admin(state: dict) -> None:
@@ -1829,13 +1940,13 @@ def main() -> None:
     if st.session_state.get("storage_ok") is False and st.session_state.get("storage_message"):
         st.caption(f"最近錯誤：{st.session_state.get('storage_message')}")
 
-    page = st.radio(
-        "頁面",
-        ["填寫", "查詢/編輯", "紀錄", "統計", "後台"],
-        horizontal=True,
-        label_visibility="collapsed",
+    page_options = ["填寫", "查詢/編輯", "紀錄", "統計", "後台"]
+    page = st.segmented_control(
+        "目前頁面",
+        page_options,
         key="active_page",
     )
+    page = page or st.session_state.active_page
     if page == "填寫":
         render_form(state)
     elif page == "查詢/編輯":
