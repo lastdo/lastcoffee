@@ -4,6 +4,7 @@ import csv
 import copy
 import io
 import json
+import math
 import os
 import re
 import uuid
@@ -930,8 +931,17 @@ def format_time(value: str) -> str:
     return value.replace("T", " ").replace("+00:00", "").replace("Z", "")[:19]
 
 
-def rank_rows(items: list[dict], key: str, limit: int = 10) -> list[tuple[str, int]]:
+def rank_rows(items: list[dict], key: str, limit: int | None = 10) -> list[tuple[str, int]]:
     counts = Counter(str(item.get(key, "")).strip() for item in items if item.get(key))
+    return counts.most_common(limit)
+
+
+def model_rank_rows(devices: list[dict], limit: int | None = None) -> list[tuple[str, int]]:
+    counts = Counter(
+        f"{device.get('brandName', '')} {device.get('model', '')}".strip()
+        for device in devices
+        if device.get("model")
+    )
     return counts.most_common(limit)
 
 
@@ -946,6 +956,9 @@ def render_bar_chart(title: str, rows: list[tuple[str, int]], empty_text: str, h
         st.info(empty_text)
         return
     max_count = max(row["count"] for row in values)
+    x_axis = {"format": "d"}
+    if max_count <= 30:
+        x_axis["values"] = list(range(1, max_count + 1))
     st.vega_lite_chart(
         {
             "data": {"values": values},
@@ -956,7 +969,7 @@ def render_bar_chart(title: str, rows: list[tuple[str, int]], empty_text: str, h
                     "type": "quantitative",
                     "title": "數量",
                     "scale": {"domainMin": 0, "domainMax": max_count},
-                    "axis": {"values": list(range(1, max_count + 1)), "format": "d"},
+                    "axis": x_axis,
                 },
                 "y": {
                     "field": "label",
@@ -972,6 +985,84 @@ def render_bar_chart(title: str, rows: list[tuple[str, int]], empty_text: str, h
             "height": height,
         },
         use_container_width=True,
+    )
+
+
+def render_full_rank_table(
+    title: str,
+    rows: list[tuple[str, int]],
+    empty_text: str,
+    *,
+    label_title: str = "項目",
+    search_key: str,
+    sort_key: str,
+    scale_key: str,
+    height: int = 560,
+) -> None:
+    st.markdown(f"#### {title}")
+    if not rows:
+        st.info(empty_text)
+        return
+
+    control_cols = st.columns([3, 1.4, 1.2])
+    query = control_cols[0].text_input("搜尋", placeholder=f"輸入{label_title}關鍵字", key=search_key)
+    sort_mode = control_cols[1].selectbox(
+        "排序",
+        ["數量高到低", f"{label_title} A-Z", f"{label_title} Z-A"],
+        key=sort_key,
+    )
+    scale_mode = control_cols[2].segmented_control("刻度", ["線性", "對數"], key=scale_key)
+    scale_mode = scale_mode or "線性"
+
+    filtered = [(label, count) for label, count in rows if normalize(query) in normalize(label)]
+    if sort_mode.endswith("A-Z"):
+        filtered.sort(key=lambda row: normalize(row[0]))
+    elif sort_mode.endswith("Z-A"):
+        filtered.sort(key=lambda row: normalize(row[0]), reverse=True)
+    else:
+        filtered.sort(key=lambda row: (-row[1], normalize(row[0])))
+
+    total_count = sum(count for _, count in rows)
+    max_count = max((count for _, count in filtered), default=0)
+    max_log = math.log10(max_count + 1) if max_count else 1
+    table_rows = []
+    for index, (label, count) in enumerate(filtered, start=1):
+        if scale_mode == "對數":
+            bar_value = (math.log10(count + 1) / max_log * 100) if max_count else 0
+        else:
+            bar_value = (count / max_count * 100) if max_count else 0
+        table_rows.append(
+            {
+                "排名": index,
+                label_title: label,
+                "數量": count,
+                "占比": (count / total_count * 100) if total_count else 0,
+                "視覺比例": round(bar_value, 2),
+            }
+        )
+
+    st.caption(f"顯示 {len(filtered)} / {len(rows)} 筆；占比以目前品項總數計算。")
+    if not table_rows:
+        st.info("找不到符合條件的資料。")
+        return
+    st.dataframe(
+        table_rows,
+        use_container_width=True,
+        hide_index=True,
+        height=height,
+        column_config={
+            "排名": st.column_config.NumberColumn(width="small", format="%d"),
+            label_title: st.column_config.TextColumn(width="large"),
+            "數量": st.column_config.NumberColumn(width="small", format="%d"),
+            "占比": st.column_config.NumberColumn(width="small", format="%.2f%%"),
+            "視覺比例": st.column_config.ProgressColumn(
+                "視覺比例",
+                min_value=0,
+                max_value=100,
+                format="%.1f%%",
+                width="medium",
+            ),
+        },
     )
 
 
@@ -1488,20 +1579,21 @@ def render_stats(state: dict) -> None:
     cols[2].metric("正式品牌", len(approved_brands(state)))
     cols[3].metric("待確認品牌", len(pending_brands(state)))
 
-    type_rows = rank_rows(devices, "type")
+    type_rows = rank_rows(devices, "type", None)
     type_options = [row[0] for row in type_rows]
-    selected_type = type_options[0] if type_options else ""
+    selected_type = "全部" if type_options else ""
     if type_options:
-        selected_type = st.selectbox("品項類型", type_options, key="stats_device_type")
+        selected_type = st.selectbox("品項類型", ["全部"] + type_options, key="stats_device_type")
     typed_approved_devices = [
-        device for device in approved_devices if device.get("type") == selected_type
+        device
+        for device in approved_devices
+        if selected_type == "全部" or device.get("type") == selected_type
     ]
-    brand_rows = rank_rows(typed_approved_devices, "brandName")
-    model_rows = Counter(
-        f"{device.get('brandName', '')} {device.get('model', '')}".strip()
-        for device in typed_approved_devices
-        if device.get("model")
-    ).most_common(10)
+    brand_rows = rank_rows(typed_approved_devices, "brandName", None)
+    model_rows = model_rank_rows(typed_approved_devices, None)
+    brand_chart_rows = brand_rows[:20]
+    model_chart_rows = model_rows[:20]
+    selected_type_title = "" if selected_type == "全部" else selected_type
 
     st.markdown("### 成果視覺化")
     chart_left, chart_right = st.columns(2)
@@ -1511,30 +1603,18 @@ def render_stats(state: dict) -> None:
         chart_tab_brand, chart_tab_model = st.tabs(["Top 品牌", "Top 型號"])
         with chart_tab_brand:
             render_bar_chart(
-                f"{selected_type} Top 品牌" if selected_type else "Top 品牌",
-                brand_rows,
+                f"{selected_type_title} Top 品牌" if selected_type_title else "Top 品牌",
+                brand_chart_rows,
                 "目前沒有這個品項的正式品牌設備可視覺化。",
             )
         with chart_tab_model:
             render_bar_chart(
-                f"{selected_type} Top 型號" if selected_type else "Top 型號",
-                model_rows,
+                f"{selected_type_title} Top 型號" if selected_type_title else "Top 型號",
+                model_chart_rows,
                 "目前沒有這個品項的正式型號設備可視覺化。",
             )
 
     st.divider()
-
-    left, right = st.columns(2)
-    left.markdown("#### 類型排名")
-    if type_rows:
-        left.table(type_rows)
-    else:
-        left.info("目前沒有設備類型資料。")
-    right.markdown(f"#### 品牌排名｜{selected_type}" if selected_type else "#### 品牌排名")
-    if brand_rows:
-        right.table(brand_rows)
-    else:
-        right.info("目前沒有品牌排名資料。")
 
     pending_rows = []
     for brand in pending_brands(state):
@@ -1542,17 +1622,52 @@ def render_stats(state: dict) -> None:
         pending_rows.append((display_brand(brand), count))
     pending_rows.sort(key=lambda row: (-row[1], row[0]))
 
-    pending_col, model_col = st.columns(2)
+    pending_col, summary_col = st.columns(2)
     pending_col.markdown("#### 待確認品牌")
     if pending_rows:
         pending_col.table(pending_rows)
     else:
         pending_col.info("目前沒有待確認品牌。")
-    model_col.markdown(f"#### 型號排名｜{selected_type}" if selected_type else "#### 型號排名")
-    if model_rows:
-        model_col.table(model_rows)
-    else:
-        model_col.info("目前沒有型號排名資料。")
+    summary_col.markdown("#### 目前篩選")
+    summary_col.write(f"品項類型：{selected_type}")
+    summary_col.write(f"正式設備：{len(typed_approved_devices)}")
+    summary_col.write(f"品牌數：{len(brand_rows)}")
+    summary_col.write(f"型號數：{len(model_rows)}")
+
+    st.markdown("### 完整排名")
+    rank_type_tab, rank_brand_tab, rank_model_tab = st.tabs(["類型", "品牌", "型號"])
+    with rank_type_tab:
+        render_full_rank_table(
+            "類型完整排名",
+            type_rows,
+            "目前沒有設備類型資料。",
+            label_title="類型",
+            search_key="stats-type-search",
+            sort_key="stats-type-sort",
+            scale_key="stats-type-scale",
+            height=360,
+        )
+    with rank_brand_tab:
+        render_full_rank_table(
+            f"{selected_type_title} 品牌完整排名" if selected_type_title else "品牌完整排名",
+            brand_rows,
+            "目前沒有品牌排名資料。",
+            label_title="品牌",
+            search_key="stats-brand-search",
+            sort_key="stats-brand-sort",
+            scale_key="stats-brand-scale",
+        )
+    with rank_model_tab:
+        render_full_rank_table(
+            f"{selected_type_title} 型號完整排名" if selected_type_title else "型號完整排名",
+            model_rows,
+            "目前沒有型號排名資料。",
+            label_title="型號",
+            search_key="stats-model-search",
+            sort_key="stats-model-sort",
+            scale_key="stats-model-scale",
+            height=640,
+        )
 
     st.download_button("下載 CSV", state_to_csv(state), "bahamut-audio-census.csv", "text/csv")
     st.download_button(
